@@ -1585,7 +1585,9 @@ def ipaddress_assign(request, pk):
                 return redirect('dcim:device', pk=device.pk)
 
     else:
-        form = forms.IPAddressForm(device)
+        form = forms.IPAddressForm(device, initial={
+            'interface': request.GET.get('interface', None)
+        })
 
     return render(request, 'dcim/ipaddress_assign.html', {
         'device': device,
