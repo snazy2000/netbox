@@ -304,7 +304,7 @@ class PrefixFilterForm(BootstrapMixin, CustomFieldFilterForm):
 
 class IPAddressForm(BootstrapMixin, CustomFieldForm):
     interface = forms.ModelChoiceField(queryset=Interface.objects.all(), label='Interface',
-                                      widget=APISelect(api_url='/api/dcim/devices/{{device}}/interfaces/'))
+                                       widget=APISelect(api_url='/api/dcim/devices/{{device}}/interfaces/'))
     nat_site = forms.ModelChoiceField(queryset=Site.objects.all(), required=False, label='Site',
                                       widget=forms.Select(attrs={'filter-for': 'nat_device'}))
     nat_device = forms.ModelChoiceField(queryset=Device.objects.all(), required=False, label='Device',
