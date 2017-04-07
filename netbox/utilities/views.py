@@ -212,7 +212,6 @@ class ObjectEditView(View):
             else:
                 return redirect(self.get_return_url(obj))
 
-
         return render(request, self.template_name, {
             'obj': obj,
             'obj_type': self.model._meta.verbose_name,
