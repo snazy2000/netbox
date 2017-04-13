@@ -12,7 +12,9 @@ from django.forms import CharField, ModelMultipleChoiceField, MultipleHiddenInpu
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template import TemplateSyntaxError
+from django.utils.html import escape
 from django.utils.http import is_safe_url
+from django.utils.safestring import mark_safe
 from django.views.generic import View
 
 from extras.forms import CustomFieldForm
@@ -194,10 +196,10 @@ class ObjectEditView(View):
             msg = u'Created ' if obj_created else u'Modified '
             msg += self.model._meta.verbose_name
             if hasattr(obj, 'get_absolute_url'):
-                msg = u'{} <a href="{}">{}</a>'.format(msg, obj.get_absolute_url(), obj)
+                msg = u'{} <a href="{}">{}</a>'.format(msg, obj.get_absolute_url(), escape(obj))
             else:
-                msg = u'{} {}'.format(msg, obj)
-            messages.success(request, msg)
+                msg = u'{} {}'.format(msg, escape(obj))
+            messages.success(request, mark_safe(msg))
             if obj_created:
                 UserAction.objects.log_create(request.user, obj, msg)
             else:
