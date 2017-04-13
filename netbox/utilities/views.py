@@ -176,7 +176,7 @@ class ObjectEditView(View):
             'obj': obj,
             'obj_type': self.model._meta.verbose_name,
             'form': form,
-            'return_url': self.get_return_url(obj),
+            'return_url': request.GET.get('return_url') or self.get_return_url(obj),
         })
 
     def post(self, request, *args, **kwargs):
