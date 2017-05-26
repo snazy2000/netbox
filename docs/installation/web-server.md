@@ -25,7 +25,7 @@ server {
 
     server_name netbox.example.com;
 
-    access_log off;
+    client_max_body_size 25m;
 
     location /static/ {
         alias /opt/netbox/netbox/static/;
@@ -72,6 +72,9 @@ Once Apache is installed, proceed with the following configuration (Be sure to m
     ServerName netbox.example.com
 
     Alias /static /opt/netbox/netbox/static
+
+    # Needed to allow token-based API authentication
+    WSGIPassAuthorization on
 
     <Directory /opt/netbox/netbox/static>
         Options Indexes FollowSymLinks MultiViews

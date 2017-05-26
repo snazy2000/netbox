@@ -1,10 +1,11 @@
+from __future__ import unicode_literals
 from collections import OrderedDict
+
 from django_tables2 import RequestConfig
 
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.contenttypes.models import ContentType
-from django.core.exceptions import ValidationError
 from django.db import transaction, IntegrityError
 from django.db.models import ProtectedError
 from django.forms import CharField, ModelMultipleChoiceField, MultipleHiddenInput, TypedChoiceField
@@ -18,7 +19,6 @@ from django.utils.safestring import mark_safe
 from django.views.generic import View
 
 from extras.models import CustomField, CustomFieldValue, ExportTemplate, UserAction
-
 from .error_handlers import handle_protectederror
 from .forms import ConfirmationForm
 from .paginator import EnhancedPaginator
@@ -96,7 +96,7 @@ class ObjectListView(View):
                                           filename='netbox_{}'.format(model._meta.verbose_name_plural))
                 return response
             except TemplateSyntaxError:
-                messages.error(request, u"There was an error rendering the selected export template ({})."
+                messages.error(request, "There was an error rendering the selected export template ({})."
                                .format(et.name))
         # Fall back to built-in CSV export
         elif 'export' in request.GET and hasattr(model, 'to_csv'):
@@ -197,12 +197,12 @@ class ObjectEditView(GetReturnURLMixin, View):
             obj_created = not form.instance.pk
             obj = form.save()
 
-            msg = u'Created ' if obj_created else u'Modified '
+            msg = 'Created ' if obj_created else 'Modified '
             msg += self.model._meta.verbose_name
             if hasattr(obj, 'get_absolute_url'):
-                msg = u'{} <a href="{}">{}</a>'.format(msg, obj.get_absolute_url(), escape(obj))
+                msg = '{} <a href="{}">{}</a>'.format(msg, obj.get_absolute_url(), escape(obj))
             else:
-                msg = u'{} {}'.format(msg, escape(obj))
+                msg = '{} {}'.format(msg, escape(obj))
             messages.success(request, mark_safe(msg))
             if obj_created:
                 UserAction.objects.log_create(request.user, obj, msg)
@@ -268,7 +268,7 @@ class ObjectDeleteView(GetReturnURLMixin, View):
                 handle_protectederror(obj, request, e)
                 return redirect(obj.get_absolute_url())
 
-            msg = u'Deleted {} {}'.format(self.model._meta.verbose_name, obj)
+            msg = 'Deleted {} {}'.format(self.model._meta.verbose_name, obj)
             messages.success(request, msg)
             UserAction.objects.log_delete(request.user, obj, msg)
 
@@ -290,66 +290,78 @@ class BulkAddView(View):
     """
     Create new objects in bulk.
 
-    form: Form class
+    pattern_form: Form class which provides the `pattern` field
     model_form: The ModelForm used to create individual objects
     template_name: The name of the template
     default_return_url: Name of the URL to which the user is redirected after creating the objects
     """
-    form = None
+    pattern_form = None
     model_form = None
+    pattern_target = ''
     template_name = None
     default_return_url = 'home'
 
     def get(self, request):
 
-        form = self.form()
+        pattern_form = self.pattern_form()
+        model_form = self.model_form()
 
         return render(request, self.template_name, {
             'obj_type': self.model_form._meta.model._meta.verbose_name,
-            'form': form,
+            'pattern_form': pattern_form,
+            'model_form': model_form,
             'return_url': reverse(self.default_return_url),
         })
 
     def post(self, request):
 
         model = self.model_form._meta.model
-        form = self.form(request.POST)
-        if form.is_valid():
+        pattern_form = self.pattern_form(request.POST)
+        model_form = self.model_form(request.POST)
 
-            # Read the pattern field and target from the form's pattern_map
-            pattern_field, pattern_target = form.pattern_map
-            pattern = form.cleaned_data[pattern_field]
-            model_form_data = form.cleaned_data
+        if pattern_form.is_valid():
 
+            pattern = pattern_form.cleaned_data['pattern']
             new_objs = []
+
             try:
                 with transaction.atomic():
-                    # Validate and save each object individually
+
+                    # Create objects from the expanded. Abort the transaction on the first validation error.
                     for value in pattern:
-                        model_form_data[pattern_target] = value
-                        model_form = self.model_form(model_form_data)
+
+                        # Reinstantiate the model form each time to avoid overwriting the same instance. Use a mutable
+                        # copy of the POST QueryDict so that we can update the target field value.
+                        model_form = self.model_form(request.POST.copy())
+                        model_form.data[self.pattern_target] = value
+
+                        # Validate each new object independently.
                         if model_form.is_valid():
                             obj = model_form.save()
                             new_objs.append(obj)
                         else:
-                            for error in model_form.errors.as_data().values():
-                                form.add_error(None, error)
-                    # Abort the creation of all objects if errors exist
-                    if form.errors:
-                        raise ValidationError("Validation of one or more model forms failed.")
-            except ValidationError:
+                            # Copy any errors on the pattern target field to the pattern form.
+                            errors = model_form.errors.as_data()
+                            if errors.get(self.pattern_target):
+                                pattern_form.add_error('pattern', errors[self.pattern_target])
+                            # Raise an IntegrityError to break the for loop and abort the transaction.
+                            raise IntegrityError()
+
+                    # If we make it to this point, validation has succeeded on all new objects.
+                    msg = "Added {} {}".format(len(new_objs), model._meta.verbose_name_plural)
+                    messages.success(request, msg)
+                    UserAction.objects.log_bulk_create(request.user, ContentType.objects.get_for_model(model), msg)
+
+                    if '_addanother' in request.POST:
+                        return redirect(request.path)
+                    return redirect(self.default_return_url)
+
+            except IntegrityError:
                 pass
 
-            if not form.errors:
-                msg = u"Added {} {}".format(len(new_objs), model._meta.verbose_name_plural)
-                messages.success(request, msg)
-                UserAction.objects.log_bulk_create(request.user, ContentType.objects.get_for_model(model), msg)
-                if '_addanother' in request.POST:
-                    return redirect(request.path)
-                return redirect(self.default_return_url)
-
         return render(request, self.template_name, {
-            'form': form,
+            'pattern_form': pattern_form,
+            'model_form': model_form,
             'obj_type': model._meta.verbose_name,
             'return_url': reverse(self.default_return_url),
         })
@@ -389,7 +401,7 @@ class BulkImportView(View):
 
                 obj_table = self.table(new_objs)
                 if new_objs:
-                    msg = u'Imported {} {}'.format(len(new_objs), new_objs[0]._meta.verbose_name_plural)
+                    msg = 'Imported {} {}'.format(len(new_objs), new_objs[0]._meta.verbose_name_plural)
                     messages.success(request, msg)
                     UserAction.objects.log_import(request.user, ContentType.objects.get_for_model(new_objs[0]), msg)
 
@@ -482,7 +494,7 @@ class BulkEditView(View):
                         updated_count = objs_updated
 
                 if updated_count:
-                    msg = u'Updated {} {}'.format(updated_count, self.cls._meta.verbose_name_plural)
+                    msg = 'Updated {} {}'.format(updated_count, self.cls._meta.verbose_name_plural)
                     messages.success(self.request, msg)
                     UserAction.objects.log_bulk_edit(request.user, ContentType.objects.get_for_model(self.cls), msg)
                 return redirect(return_url)
@@ -494,7 +506,7 @@ class BulkEditView(View):
 
         selected_objects = self.cls.objects.filter(pk__in=pk_list)
         if not selected_objects:
-            messages.warning(request, u"No {} were selected.".format(self.cls._meta.verbose_name_plural))
+            messages.warning(request, "No {} were selected.".format(self.cls._meta.verbose_name_plural))
             return redirect(return_url)
 
         return render(request, self.template_name, {
@@ -519,7 +531,7 @@ class BulkEditView(View):
                 objs_updated = True
 
             # Updating the value of the field
-            elif form.cleaned_data[name] not in [None, u'']:
+            elif form.cleaned_data[name] not in [None, '']:
 
                 # Check for zero value (bulk editing)
                 if isinstance(form.fields[name], TypedChoiceField) and form.cleaned_data[name] == 0:
@@ -607,7 +619,7 @@ class BulkDeleteView(View):
                     handle_protectederror(list(queryset), request, e)
                     return redirect(return_url)
 
-                msg = u'Deleted {} {}'.format(deleted_count, self.cls._meta.verbose_name_plural)
+                msg = 'Deleted {} {}'.format(deleted_count, self.cls._meta.verbose_name_plural)
                 messages.success(request, msg)
                 UserAction.objects.log_bulk_delete(request.user, ContentType.objects.get_for_model(self.cls), msg)
                 return redirect(return_url)
@@ -617,7 +629,7 @@ class BulkDeleteView(View):
 
         selected_objects = self.cls.objects.filter(pk__in=pk_list)
         if not selected_objects:
-            messages.warning(request, u"No {} were selected for deletion.".format(self.cls._meta.verbose_name_plural))
+            messages.warning(request, "No {} were selected for deletion.".format(self.cls._meta.verbose_name_plural))
             return redirect(return_url)
 
         return render(request, self.template_name, {

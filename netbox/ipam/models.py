@@ -1,3 +1,5 @@
+from __future__ import unicode_literals
+
 from netaddr import IPNetwork, cidr_merge
 
 from django.conf import settings
@@ -15,7 +17,6 @@ from tenancy.models import Tenant
 from utilities.models import CreatedUpdatedModel
 from utilities.sql import NullsFirstQuerySet
 from utilities.utils import csv_format
-
 from .fields import IPNetworkField, IPAddressField
 
 
@@ -499,7 +500,7 @@ class VLANGroup(models.Model):
     def __str__(self):
         if self.site is None:
             return self.name
-        return u'{} - {}'.format(self.site.name, self.name)
+        return '{} - {}'.format(self.site.name, self.name)
 
     def get_absolute_url(self):
         return "{}?group_id={}".format(reverse('ipam:vlan_list'), self.pk)
@@ -538,7 +539,7 @@ class VLAN(CreatedUpdatedModel, CustomFieldModel):
         verbose_name_plural = 'VLANs'
 
     def __str__(self):
-        return self.display_name
+        return self.display_name or super(VLAN, self).__str__()
 
     def get_absolute_url(self):
         return reverse('ipam:vlan', args=[self.pk])
@@ -565,7 +566,9 @@ class VLAN(CreatedUpdatedModel, CustomFieldModel):
 
     @property
     def display_name(self):
-        return u'{} ({})'.format(self.vid, self.name)
+        if self.vid and self.name:
+            return "{} ({})".format(self.vid, self.name)
+        return None
 
     def get_status_class(self):
         return STATUS_CHOICE_CLASSES[self.status]
@@ -591,4 +594,4 @@ class Service(CreatedUpdatedModel):
         unique_together = ['device', 'protocol', 'port']
 
     def __str__(self):
-        return u'{} ({}/{})'.format(self.name, self.port, self.get_protocol_display())
+        return '{} ({}/{})'.format(self.name, self.port, self.get_protocol_display())

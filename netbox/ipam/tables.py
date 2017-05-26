@@ -1,8 +1,9 @@
+from __future__ import unicode_literals
+
 import django_tables2 as tables
 from django_tables2.utils import Accessor
 
 from utilities.tables import BaseTable, SearchTable, ToggleColumn
-
 from .models import Aggregate, IPAddress, Prefix, RIR, Role, VLAN, VLANGroup, VRF
 
 
@@ -70,9 +71,18 @@ IPADDRESS_LINK = """
 {% if record.pk %}
     <a href="{{ record.get_absolute_url }}">{{ record.address }}</a>
 {% elif perms.ipam.add_ipaddress %}
-    <a href="{% url 'ipam:ipaddress_add' %}?address={{ record.1 }}{% if prefix.vrf %}&vrf={{ prefix.vrf.pk }}{% endif %}" class="btn btn-xs btn-success">{% if record.0 <= 65536 %}{{ record.0 }}{% else %}Lots of{% endif %} free IP{{ record.0|pluralize }}</a>
+    <a href="{% url 'ipam:ipaddress_add' %}?address={{ record.1 }}{% if prefix.vrf %}&vrf={{ prefix.vrf.pk }}{% endif %}" class="btn btn-xs btn-success">{% if record.0 <= 65536 %}{{ record.0 }}{% else %}Many{% endif %} IP{{ record.0|pluralize }} available</a>
 {% else %}
-    {{ record.0 }}
+    {% if record.0 <= 65536 %}{{ record.0 }}{% else %}Many{% endif %} IP{{ record.0|pluralize }} available
+{% endif %}
+"""
+
+IPADDRESS_DEVICE = """
+{% if record.interface %}
+    <a href="{{ record.interface.device.get_absolute_url }}">{{ record.interface.device }}</a>
+    ({{ record.interface.name }})
+{% else %}
+    &mdash;
 {% endif %}
 """
 
@@ -281,12 +291,14 @@ class IPAddressTable(BaseTable):
     status = tables.TemplateColumn(STATUS_LABEL)
     vrf = tables.TemplateColumn(VRF_LINK, verbose_name='VRF')
     tenant = tables.TemplateColumn(TENANT_LINK)
-    device = tables.LinkColumn('dcim:device', args=[Accessor('interface.device.pk')], orderable=False)
-    interface = tables.Column(orderable=False)
+    nat_inside = tables.LinkColumn(
+        'ipam:ipaddress', args=[Accessor('nat_inside.pk')], orderable=False, verbose_name='NAT (Inside)'
+    )
+    device = tables.TemplateColumn(IPADDRESS_DEVICE, orderable=False)
 
     class Meta(BaseTable.Meta):
         model = IPAddress
-        fields = ('pk', 'address', 'status', 'vrf', 'tenant', 'device', 'interface', 'description')
+        fields = ('pk', 'address', 'status', 'vrf', 'tenant', 'nat_inside', 'device', 'description')
         row_attrs = {
             'class': lambda record: 'success' if not isinstance(record, IPAddress) else '',
         }
