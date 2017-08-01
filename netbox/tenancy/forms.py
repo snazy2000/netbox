@@ -5,8 +5,7 @@ from django.db.models import Count
 
 from extras.forms import CustomFieldForm, CustomFieldBulkEditForm, CustomFieldFilterForm
 from utilities.forms import (
-    APISelect, BootstrapMixin, BulkImportForm, ChainedFieldsMixin, ChainedModelChoiceField, CommentField, CSVDataField,
-    FilterChoiceField, SlugField,
+    APISelect, BootstrapMixin, ChainedFieldsMixin, ChainedModelChoiceField, CommentField, FilterChoiceField, SlugField,
 )
 from .models import Tenant, TenantGroup
 
@@ -36,17 +35,25 @@ class TenantForm(BootstrapMixin, CustomFieldForm):
         fields = ['name', 'slug', 'group', 'description', 'comments']
 
 
-class TenantFromCSVForm(forms.ModelForm):
-    group = forms.ModelChoiceField(TenantGroup.objects.all(), required=False, to_field_name='name',
-                                   error_messages={'invalid_choice': 'Group not found.'})
+class TenantCSVForm(forms.ModelForm):
+    slug = SlugField()
+    group = forms.ModelChoiceField(
+        queryset=TenantGroup.objects.all(),
+        required=False,
+        to_field_name='name',
+        help_text='Name of parent group',
+        error_messages={
+            'invalid_choice': 'Group not found.'
+        }
+    )
 
     class Meta:
         model = Tenant
-        fields = ['name', 'slug', 'group', 'description']
-
-
-class TenantImportForm(BootstrapMixin, BulkImportForm):
-    csv = CSVDataField(csv_form=TenantFromCSVForm)
+        fields = ['name', 'slug', 'group', 'description', 'comments']
+        help_texts = {
+            'name': 'Tenant name',
+            'comments': 'Free-form comments'
+        }
 
 
 class TenantBulkEditForm(BootstrapMixin, CustomFieldBulkEditForm):
@@ -95,7 +102,7 @@ class TenancyForm(ChainedFieldsMixin, forms.Form):
         # Initialize helper selector
         instance = kwargs.get('instance')
         if instance and instance.tenant is not None:
-            initial = kwargs.get('initial', {})
+            initial = kwargs.get('initial', {}).copy()
             initial['tenant_group'] = instance.tenant.group
             kwargs['initial'] = initial
 

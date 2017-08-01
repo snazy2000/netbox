@@ -10,14 +10,7 @@ from extras.models import CustomFieldModel, CustomFieldValue
 from tenancy.models import Tenant
 from utilities.utils import csv_format
 from utilities.models import CreatedUpdatedModel
-
-
-TERM_SIDE_A = 'A'
-TERM_SIDE_Z = 'Z'
-TERM_SIDE_CHOICES = (
-    (TERM_SIDE_A, 'A'),
-    (TERM_SIDE_Z, 'Z'),
-)
+from .constants import *
 
 
 def humanize_speed(speed):
@@ -51,6 +44,8 @@ class Provider(CreatedUpdatedModel, CustomFieldModel):
     admin_contact = models.TextField(blank=True, verbose_name='Admin contact')
     comments = models.TextField(blank=True)
     custom_field_values = GenericRelation(CustomFieldValue, content_type_field='obj_type', object_id_field='obj_id')
+
+    csv_headers = ['name', 'slug', 'asn', 'account', 'portal_url']
 
     class Meta:
         ordering = ['name']
@@ -106,6 +101,8 @@ class Circuit(CreatedUpdatedModel, CustomFieldModel):
     description = models.CharField(max_length=100, blank=True)
     comments = models.TextField(blank=True)
     custom_field_values = GenericRelation(CustomFieldValue, content_type_field='obj_type', object_id_field='obj_id')
+
+    csv_headers = ['cid', 'provider', 'type', 'tenant', 'install_date', 'commit_rate', 'description']
 
     class Meta:
         ordering = ['provider', 'cid']

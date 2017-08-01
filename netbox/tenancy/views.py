@@ -26,8 +26,8 @@ class TenantGroupListView(ObjectListView):
     template_name = 'tenancy/tenantgroup_list.html'
 
 
-class TenantGroupEditView(PermissionRequiredMixin, ObjectEditView):
-    permission_required = 'tenancy.change_tenantgroup'
+class TenantGroupCreateView(PermissionRequiredMixin, ObjectEditView):
+    permission_required = 'tenancy.add_tenantgroup'
     model = TenantGroup
     form_class = forms.TenantGroupForm
 
@@ -35,9 +35,15 @@ class TenantGroupEditView(PermissionRequiredMixin, ObjectEditView):
         return reverse('tenancy:tenantgroup_list')
 
 
+class TenantGroupEditView(TenantGroupCreateView):
+    permission_required = 'tenancy.change_tenantgroup'
+
+
 class TenantGroupBulkDeleteView(PermissionRequiredMixin, BulkDeleteView):
     permission_required = 'tenancy.delete_tenantgroup'
     cls = TenantGroup
+    queryset = TenantGroup.objects.annotate(tenant_count=Count('tenants'))
+    table = tables.TenantGroupTable
     default_return_url = 'tenancy:tenantgroup_list'
 
 
@@ -81,12 +87,16 @@ class TenantView(View):
         })
 
 
-class TenantEditView(PermissionRequiredMixin, ObjectEditView):
-    permission_required = 'tenancy.change_tenant'
+class TenantCreateView(PermissionRequiredMixin, ObjectEditView):
+    permission_required = 'tenancy.add_tenant'
     model = Tenant
     form_class = forms.TenantForm
     template_name = 'tenancy/tenant_edit.html'
     default_return_url = 'tenancy:tenant_list'
+
+
+class TenantEditView(TenantCreateView):
+    permission_required = 'tenancy.change_tenant'
 
 
 class TenantDeleteView(PermissionRequiredMixin, ObjectDeleteView):
@@ -97,23 +107,25 @@ class TenantDeleteView(PermissionRequiredMixin, ObjectDeleteView):
 
 class TenantBulkImportView(PermissionRequiredMixin, BulkImportView):
     permission_required = 'tenancy.add_tenant'
-    form = forms.TenantImportForm
+    model_form = forms.TenantCSVForm
     table = tables.TenantTable
-    template_name = 'tenancy/tenant_import.html'
     default_return_url = 'tenancy:tenant_list'
 
 
 class TenantBulkEditView(PermissionRequiredMixin, BulkEditView):
     permission_required = 'tenancy.change_tenant'
     cls = Tenant
+    queryset = Tenant.objects.select_related('group')
     filter = filters.TenantFilter
+    table = tables.TenantTable
     form = forms.TenantBulkEditForm
-    template_name = 'tenancy/tenant_bulk_edit.html'
     default_return_url = 'tenancy:tenant_list'
 
 
 class TenantBulkDeleteView(PermissionRequiredMixin, BulkDeleteView):
     permission_required = 'tenancy.delete_tenant'
     cls = Tenant
+    queryset = Tenant.objects.select_related('group')
     filter = filters.TenantFilter
+    table = tables.TenantTable
     default_return_url = 'tenancy:tenant_list'

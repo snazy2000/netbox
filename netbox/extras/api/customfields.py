@@ -1,4 +1,5 @@
 from __future__ import unicode_literals
+from datetime import datetime
 
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
@@ -6,7 +7,9 @@ from rest_framework.exceptions import ValidationError
 from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
 
-from extras.models import CF_TYPE_SELECT, CustomField, CustomFieldChoice, CustomFieldValue
+from extras.models import (
+    CF_TYPE_BOOLEAN, CF_TYPE_DATE, CF_TYPE_SELECT, CustomField, CustomFieldChoice, CustomFieldValue,
+)
 
 
 #
@@ -25,16 +28,34 @@ class CustomFieldsSerializer(serializers.BaseSerializer):
 
         for field_name, value in data.items():
 
+            cf = custom_fields[field_name]
+
             # Validate custom field name
             if field_name not in custom_fields:
                 raise ValidationError("Invalid custom field for {} objects: {}".format(content_type, field_name))
 
+            # Validate boolean
+            if cf.type == CF_TYPE_BOOLEAN and value not in [True, False, 1, 0]:
+                raise ValidationError("Invalid value for boolean field {}: {}".format(field_name, value))
+
+            # Validate date
+            if cf.type == CF_TYPE_DATE:
+                try:
+                    datetime.strptime(value, '%Y-%m-%d')
+                except ValueError:
+                    raise ValidationError("Invalid date for field {}: {}. (Required format is YYYY-MM-DD.)".format(
+                        field_name, value
+                    ))
+
             # Validate selected choice
-            cf = custom_fields[field_name]
             if cf.type == CF_TYPE_SELECT:
+                try:
+                    value = int(value)
+                except ValueError:
+                    raise ValidationError("{}: Choice selections must be passed as integers.".format(field_name))
                 valid_choices = [c.pk for c in cf.choices.all()]
                 if value not in valid_choices:
-                    raise ValidationError("Invalid choice ({}) for field {}".format(value, field_name))
+                    raise ValidationError("Invalid choice for field {}: {}".format(field_name, value))
 
         # Check for missing required fields
         missing_fields = []
@@ -87,8 +108,18 @@ class CustomFieldModelSerializer(serializers.ModelSerializer):
                 field=custom_field,
                 obj_type=content_type,
                 obj_id=instance.pk,
-                defaults={'serialized_value': value},
+                defaults={'serialized_value': custom_field.serialize_value(value)},
             )
+
+    def validate(self, data):
+        """
+        Enforce model validation (see utilities.api.ModelValidationMixin)
+        """
+        model_data = data.copy()
+        model_data.pop('custom_fields', None)
+        instance = self.Meta.model(**model_data)
+        instance.clean()
+        return data
 
     def create(self, validated_data):
 

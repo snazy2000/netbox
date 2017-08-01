@@ -15,62 +15,7 @@ from django.utils.encoding import python_2_unicode_compatible
 from django.utils.safestring import mark_safe
 
 from utilities.utils import foreground_color
-
-
-CUSTOMFIELD_MODELS = (
-    'site', 'rack', 'devicetype', 'device',                 # DCIM
-    'aggregate', 'prefix', 'ipaddress', 'vlan', 'vrf',      # IPAM
-    'provider', 'circuit',                                  # Circuits
-    'tenant',                                               # Tenants
-)
-
-CF_TYPE_TEXT = 100
-CF_TYPE_INTEGER = 200
-CF_TYPE_BOOLEAN = 300
-CF_TYPE_DATE = 400
-CF_TYPE_URL = 500
-CF_TYPE_SELECT = 600
-CUSTOMFIELD_TYPE_CHOICES = (
-    (CF_TYPE_TEXT, 'Text'),
-    (CF_TYPE_INTEGER, 'Integer'),
-    (CF_TYPE_BOOLEAN, 'Boolean (true/false)'),
-    (CF_TYPE_DATE, 'Date'),
-    (CF_TYPE_URL, 'URL'),
-    (CF_TYPE_SELECT, 'Selection'),
-)
-
-GRAPH_TYPE_INTERFACE = 100
-GRAPH_TYPE_PROVIDER = 200
-GRAPH_TYPE_SITE = 300
-GRAPH_TYPE_CHOICES = (
-    (GRAPH_TYPE_INTERFACE, 'Interface'),
-    (GRAPH_TYPE_PROVIDER, 'Provider'),
-    (GRAPH_TYPE_SITE, 'Site'),
-)
-
-EXPORTTEMPLATE_MODELS = [
-    'site', 'rack', 'device', 'consoleport', 'powerport', 'interfaceconnection',    # DCIM
-    'aggregate', 'prefix', 'ipaddress', 'vlan',                                     # IPAM
-    'provider', 'circuit',                                                          # Circuits
-    'tenant',                                                                       # Tenants
-]
-
-ACTION_CREATE = 1
-ACTION_IMPORT = 2
-ACTION_EDIT = 3
-ACTION_BULK_EDIT = 4
-ACTION_DELETE = 5
-ACTION_BULK_DELETE = 6
-ACTION_BULK_CREATE = 7
-ACTION_CHOICES = (
-    (ACTION_CREATE, 'created'),
-    (ACTION_BULK_CREATE, 'bulk created'),
-    (ACTION_IMPORT, 'imported'),
-    (ACTION_EDIT, 'modified'),
-    (ACTION_BULK_EDIT, 'bulk edited'),
-    (ACTION_DELETE, 'deleted'),
-    (ACTION_BULK_DELETE, 'bulk deleted'),
-)
+from .constants import *
 
 
 #
@@ -139,7 +84,11 @@ class CustomField(models.Model):
         if self.type == CF_TYPE_BOOLEAN:
             return str(int(bool(value)))
         if self.type == CF_TYPE_DATE:
-            return value.strftime('%Y-%m-%d')
+            # Could be date/datetime object or string
+            try:
+                return value.strftime('%Y-%m-%d')
+            except AttributeError:
+                return value
         if self.type == CF_TYPE_SELECT:
             # Could be ModelChoiceField or TypedChoiceField
             return str(value.id) if hasattr(value, 'id') else str(value)
@@ -367,7 +316,8 @@ class TopologyMap(models.Model):
         # Add all circuits to the graph
         for termination in CircuitTermination.objects.filter(term_side='A', interface__device__in=devices):
             peer_termination = termination.get_peer_termination()
-            if peer_termination is not None and peer_termination.interface.device in devices:
+            if (peer_termination is not None and peer_termination.interface is not None and
+                    peer_termination.interface.device in devices):
                 graph.edge(termination.interface.device.name, peer_termination.interface.device.name, color='blue')
 
         return graph.pipe(format=img_format)
@@ -382,7 +332,7 @@ def image_upload(instance, filename):
     path = 'image-attachments/'
 
     # Rename the file to the provided name, if any. Attempt to preserve the file extension.
-    extension = filename.rsplit('.')[-1]
+    extension = filename.rsplit('.')[-1].lower()
     if instance.name and extension in ['bmp', 'gif', 'jpeg', 'jpg', 'png']:
         filename = '.'.join([instance.name, extension])
     elif instance.name:

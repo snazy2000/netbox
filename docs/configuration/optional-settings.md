@@ -83,6 +83,34 @@ Enforcement of unique IP space can be toggled on a per-VRF basis. To enforce uni
 
 ---
 
+## LOGGING
+
+By default, all messages of INFO severity or higher will be logged to the console. Additionally, if `DEBUG` is False and email access has been configured, ERROR and CRITICAL messages will be emailed to the users defined in `ADMINS`.
+
+The Django framework on which NetBox runs allows for the customization of logging, e.g. to write logs to file. Please consult the [Django logging documentation](https://docs.djangoproject.com/en/1.11/topics/logging/) for more information on configuring this setting. Below is an example which will write all INFO and higher messages to a file:
+
+```
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'file': {
+            'level': 'INFO',
+            'class': 'logging.FileHandler',
+            'filename': '/var/log/netbox.log',
+        },
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['file'],
+            'level': 'INFO',
+        },
+    },
+}
+```
+
+---
+
 ## LOGIN_REQUIRED
 
 Default: False
@@ -99,11 +127,61 @@ Setting this to True will display a "maintenance mode" banner at the top of ever
 
 ---
 
-## NETBOX_USERNAME
+## MAX_PAGE_SIZE
 
-## NETBOX_PASSWORD
+Default: 1000
 
-If provided, NetBox will use these credentials to authenticate against devices when collecting data.
+An API consumer can request an arbitrary number of objects by appending the "limit" parameter to the URL (e.g. `?limit=1000`). This setting defines the maximum limit. Setting it to `0` or `None` will allow an API consumer to request all objects by specifying `?limit=0`.
+
+---
+
+## NAPALM_USERNAME
+
+## NAPALM_PASSWORD
+
+NetBox will use these credentials when authenticating to remote devices via the [NAPALM library](https://napalm-automation.net/), if installed. Both parameters are optional.
+
+Note: If SSH public key authentication has been set up for the system account under which NetBox runs, these parameters are not needed.
+
+---
+
+## NAPALM_ARGS
+
+A dictionary of optional arguments to pass to NAPALM when instantiating a network driver. See the NAPALM documentation for a [complete list of optional arguments](http://napalm.readthedocs.io/en/latest/support/#optional-arguments). An example:
+
+```
+NAPALM_ARGS = {
+    'api_key': '472071a93b60a1bd1fafb401d9f8ef41',
+    'port': 2222,
+}
+```
+
+Note: Some platforms (e.g. Cisco IOS) require an argument named `secret` to be passed in addition to the normal password. If desired, you can use the configured `NAPALM_PASSWORD` as the value for this argument:
+
+```
+NAPALM_USERNAME = 'username'
+NAPALM_PASSWORD = 'MySecretPassword'
+NAPALM_ARGS = {
+    'secret': NAPALM_PASSWORD,
+    # Include any additional args here
+}
+```
+
+---
+
+## NAPALM_TIMEOUT
+
+Default: 30 seconds
+
+The amount of time (in seconds) to wait for NAPALM to connect to a device.
+
+---
+
+## NETBOX_USERNAME (Deprecated)
+
+## NETBOX_PASSWORD (Deprecated)
+
+These settings have been deprecated and will be removed in NetBox v2.2. Please use `NAPALM_USERNAME` and `NAPALM_PASSWORD` instead.
 
 ---
 

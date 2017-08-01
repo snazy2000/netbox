@@ -3,13 +3,13 @@ from __future__ import unicode_literals
 from django import forms
 from django.db.models import Count
 
-from dcim.models import Site, Device, Interface, Rack, VIRTUAL_IFACE_TYPES
+from dcim.models import Site, Device, Interface, Rack
 from extras.forms import CustomFieldForm, CustomFieldBulkEditForm, CustomFieldFilterForm
 from tenancy.forms import TenancyForm
 from tenancy.models import Tenant
 from utilities.forms import (
-    APISelect, BootstrapMixin, BulkImportForm, ChainedFieldsMixin, ChainedModelChoiceField, CommentField, CSVDataField,
-    FilterChoiceField, Livesearch, SmallTextarea, SlugField,
+    APISelect, BootstrapMixin, ChainedFieldsMixin, ChainedModelChoiceField, CommentField, FilterChoiceField,
+    SmallTextarea, SlugField,
 )
 
 from .models import Circuit, CircuitTermination, CircuitType, Provider
@@ -39,15 +39,18 @@ class ProviderForm(BootstrapMixin, CustomFieldForm):
         }
 
 
-class ProviderFromCSVForm(forms.ModelForm):
+class ProviderCSVForm(forms.ModelForm):
+    slug = SlugField()
 
     class Meta:
         model = Provider
-        fields = ['name', 'slug', 'asn', 'account', 'portal_url']
-
-
-class ProviderImportForm(BootstrapMixin, BulkImportForm):
-    csv = CSVDataField(csv_form=ProviderFromCSVForm)
+        fields = ['name', 'slug', 'asn', 'account', 'portal_url', 'comments']
+        help_texts = {
+            'name': 'Provider name',
+            'asn': '32-bit autonomous system number',
+            'portal_url': 'Portal URL',
+            'comments': 'Free-form comments',
+        }
 
 
 class ProviderBulkEditForm(BootstrapMixin, CustomFieldBulkEditForm):
@@ -102,21 +105,36 @@ class CircuitForm(BootstrapMixin, TenancyForm, CustomFieldForm):
         }
 
 
-class CircuitFromCSVForm(forms.ModelForm):
-    provider = forms.ModelChoiceField(Provider.objects.all(), to_field_name='name',
-                                      error_messages={'invalid_choice': 'Provider not found.'})
-    type = forms.ModelChoiceField(CircuitType.objects.all(), to_field_name='name',
-                                  error_messages={'invalid_choice': 'Invalid circuit type.'})
-    tenant = forms.ModelChoiceField(Tenant.objects.all(), to_field_name='name', required=False,
-                                    error_messages={'invalid_choice': 'Tenant not found.'})
+class CircuitCSVForm(forms.ModelForm):
+    provider = forms.ModelChoiceField(
+        queryset=Provider.objects.all(),
+        to_field_name='name',
+        help_text='Name of parent provider',
+        error_messages={
+            'invalid_choice': 'Provider not found.'
+        }
+    )
+    type = forms.ModelChoiceField(
+        queryset=CircuitType.objects.all(),
+        to_field_name='name',
+        help_text='Type of circuit',
+        error_messages={
+            'invalid_choice': 'Invalid circuit type.'
+        }
+    )
+    tenant = forms.ModelChoiceField(
+        queryset=Tenant.objects.all(),
+        required=False,
+        to_field_name='name',
+        help_text='Name of assigned tenant',
+        error_messages={
+            'invalid_choice': 'Tenant not found.'
+        }
+    )
 
     class Meta:
         model = Circuit
-        fields = ['cid', 'provider', 'type', 'tenant', 'install_date', 'commit_rate', 'description']
-
-
-class CircuitImportForm(BootstrapMixin, BulkImportForm):
-    csv = CSVDataField(csv_form=CircuitFromCSVForm)
+        fields = ['cid', 'provider', 'type', 'tenant', 'install_date', 'commit_rate', 'description', 'comments']
 
 
 class CircuitBulkEditForm(BootstrapMixin, CustomFieldBulkEditForm):
@@ -192,7 +210,7 @@ class CircuitTerminationForm(BootstrapMixin, ChainedFieldsMixin, forms.ModelForm
         )
     )
     interface = ChainedModelChoiceField(
-        queryset=Interface.objects.exclude(form_factor__in=VIRTUAL_IFACE_TYPES).select_related(
+        queryset=Interface.objects.connectable().select_related(
             'circuit_termination', 'connected_as_a', 'connected_as_b'
         ),
         chains=(
@@ -226,7 +244,7 @@ class CircuitTerminationForm(BootstrapMixin, ChainedFieldsMixin, forms.ModelForm
         # Initialize helper selectors
         instance = kwargs.get('instance')
         if instance and instance.interface is not None:
-            initial = kwargs.get('initial', {})
+            initial = kwargs.get('initial', {}).copy()
             initial['rack'] = instance.interface.device.rack
             initial['device'] = instance.interface.device
             kwargs['initial'] = initial
@@ -234,6 +252,11 @@ class CircuitTerminationForm(BootstrapMixin, ChainedFieldsMixin, forms.ModelForm
         super(CircuitTerminationForm, self).__init__(*args, **kwargs)
 
         # Mark connected interfaces as disabled
-        self.fields['interface'].choices = [
-            (iface.id, {'label': iface.name, 'disabled': iface.is_connected}) for iface in self.fields['interface'].queryset
-        ]
+        self.fields['interface'].choices = []
+        for iface in self.fields['interface'].queryset:
+            self.fields['interface'].choices.append(
+                (iface.id, {
+                    'label': iface.name,
+                    'disabled': iface.is_connected and iface.pk != self.initial.get('interface'),
+                })
+            )
