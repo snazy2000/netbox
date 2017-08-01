@@ -1,6 +1,5 @@
 {% extends '_base.html' %}
 {% load helpers %}
-{% load render_table from django_tables2 %}
 
 {% block title %}{{ rack.site }} - Rack {{ rack.name }}{% endblock %}
 
@@ -199,6 +198,20 @@
         </div>
         <div class="panel panel-default">
             <div class="panel-heading">
+                <strong>Images</strong>
+            </div>
+            {% include 'inc/image_attachments.html' with images=rack.images.all %}
+            {% if perms.extras.add_imageattachment %}
+                <div class="panel-footer text-right">
+                    <a href="{% url 'dcim:rack_add_image' object_id=rack.pk %}" class="btn btn-primary btn-xs">
+                        <span class="glyphicon glyphicon-plus" aria-hidden="true"></span>
+                        Attach an image
+                    </a>
+                </div>
+            {% endif %}
+        </div>
+        <div class="panel panel-default">
+            <div class="panel-heading">
                 <strong>Reservations</strong>
             </div>
             {% if reservations %}
@@ -210,7 +223,7 @@
                     </tr>
                     {% for resv in reservations %}
                         <tr>
-                            <td>{{ resv.units|join:', ' }}</td>
+                            <td>{{ resv.unit_list }}</td>
                             <td>
                                 {{ resv.description }}<br />
                                 <small>{{ resv.user }} &middot; {{ resv.created }}</small>

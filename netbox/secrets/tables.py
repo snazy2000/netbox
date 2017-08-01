@@ -1,5 +1,6 @@
+from __future__ import unicode_literals
+
 import django_tables2 as tables
-from django_tables2.utils import Accessor
 
 from utilities.tables import BaseTable, ToggleColumn
 
@@ -22,8 +23,9 @@ class SecretRoleTable(BaseTable):
     name = tables.LinkColumn(verbose_name='Name')
     secret_count = tables.Column(verbose_name='Secrets')
     slug = tables.Column(verbose_name='Slug')
-    actions = tables.TemplateColumn(template_code=SECRETROLE_ACTIONS, attrs={'td': {'class': 'text-right'}},
-                                    verbose_name='')
+    actions = tables.TemplateColumn(
+        template_code=SECRETROLE_ACTIONS, attrs={'td': {'class': 'text-right'}}, verbose_name=''
+    )
 
     class Meta(BaseTable.Meta):
         model = SecretRole
@@ -36,10 +38,7 @@ class SecretRoleTable(BaseTable):
 
 class SecretTable(BaseTable):
     pk = ToggleColumn()
-    device = tables.LinkColumn('secrets:secret', args=[Accessor('pk')], verbose_name='Device')
-    role = tables.Column(verbose_name='Role')
-    name = tables.Column(verbose_name='Name')
-    last_updated = tables.DateTimeColumn(verbose_name='Last updated')
+    device = tables.LinkColumn()
 
     class Meta(BaseTable.Meta):
         model = Secret

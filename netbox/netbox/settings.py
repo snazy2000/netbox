@@ -8,43 +8,52 @@ from django.core.exceptions import ImproperlyConfigured
 try:
     from netbox import configuration
 except ImportError:
-    raise ImproperlyConfigured("Configuration file is not present. Please define netbox/netbox/configuration.py per "
-                               "the documentation.")
+    raise ImproperlyConfigured(
+        "Configuration file is not present. Please define netbox/netbox/configuration.py per the documentation."
+    )
 
 
-VERSION = '1.9.4-r1'
+VERSION = '2.1.0'
 
-# Import local configuration
+# Import required configuration parameters
+ALLOWED_HOSTS = DATABASE = SECRET_KEY = None
 for setting in ['ALLOWED_HOSTS', 'DATABASE', 'SECRET_KEY']:
     try:
         globals()[setting] = getattr(configuration, setting)
     except AttributeError:
-        raise ImproperlyConfigured("Mandatory setting {} is missing from configuration.py. Please define it per the "
-                                   "documentation.".format(setting))
+        raise ImproperlyConfigured(
+            "Mandatory setting {} is missing from configuration.py.".format(setting)
+        )
 
-# Default configurations
+# Import optional configuration parameters
 ADMINS = getattr(configuration, 'ADMINS', [])
-DEBUG = getattr(configuration, 'DEBUG', False)
-EMAIL = getattr(configuration, 'EMAIL', {})
-LOGIN_REQUIRED = getattr(configuration, 'LOGIN_REQUIRED', False)
+BANNER_BOTTOM = getattr(configuration, 'BANNER_BOTTOM', False)
+BANNER_TOP = getattr(configuration, 'BANNER_TOP', False)
 BASE_PATH = getattr(configuration, 'BASE_PATH', '')
 if BASE_PATH:
     BASE_PATH = BASE_PATH.strip('/') + '/'  # Enforce trailing slash only
+CORS_ORIGIN_ALLOW_ALL = getattr(configuration, 'CORS_ORIGIN_ALLOW_ALL', False)
+CORS_ORIGIN_REGEX_WHITELIST = getattr(configuration, 'CORS_ORIGIN_REGEX_WHITELIST', [])
+CORS_ORIGIN_WHITELIST = getattr(configuration, 'CORS_ORIGIN_WHITELIST', [])
+DATE_FORMAT = getattr(configuration, 'DATE_FORMAT', 'N j, Y')
+DATETIME_FORMAT = getattr(configuration, 'DATETIME_FORMAT', 'N j, Y g:i a')
+DEBUG = getattr(configuration, 'DEBUG', False)
+ENFORCE_GLOBAL_UNIQUE = getattr(configuration, 'ENFORCE_GLOBAL_UNIQUE', False)
+EMAIL = getattr(configuration, 'EMAIL', {})
+LOGGING = getattr(configuration, 'LOGGING', {})
+LOGIN_REQUIRED = getattr(configuration, 'LOGIN_REQUIRED', False)
 MAINTENANCE_MODE = getattr(configuration, 'MAINTENANCE_MODE', False)
+MAX_PAGE_SIZE = getattr(configuration, 'MAX_PAGE_SIZE', 1000)
 PAGINATE_COUNT = getattr(configuration, 'PAGINATE_COUNT', 50)
+PREFER_IPV4 = getattr(configuration, 'PREFER_IPV4', False)
 NETBOX_USERNAME = getattr(configuration, 'NETBOX_USERNAME', '')
 NETBOX_PASSWORD = getattr(configuration, 'NETBOX_PASSWORD', '')
-TIME_ZONE = getattr(configuration, 'TIME_ZONE', 'UTC')
-DATE_FORMAT = getattr(configuration, 'DATE_FORMAT', 'N j, Y')
 SHORT_DATE_FORMAT = getattr(configuration, 'SHORT_DATE_FORMAT', 'Y-m-d')
-TIME_FORMAT = getattr(configuration, 'TIME_FORMAT', 'g:i a')
-SHORT_TIME_FORMAT = getattr(configuration, 'SHORT_TIME_FORMAT', 'H:i:s')
-DATETIME_FORMAT = getattr(configuration, 'DATETIME_FORMAT', 'N j, Y g:i a')
 SHORT_DATETIME_FORMAT = getattr(configuration, 'SHORT_DATETIME_FORMAT', 'Y-m-d H:i')
-BANNER_TOP = getattr(configuration, 'BANNER_TOP', False)
-BANNER_BOTTOM = getattr(configuration, 'BANNER_BOTTOM', False)
-PREFER_IPV4 = getattr(configuration, 'PREFER_IPV4', False)
-ENFORCE_GLOBAL_UNIQUE = getattr(configuration, 'ENFORCE_GLOBAL_UNIQUE', False)
+SHORT_TIME_FORMAT = getattr(configuration, 'SHORT_TIME_FORMAT', 'H:i:s')
+TIME_FORMAT = getattr(configuration, 'TIME_FORMAT', 'g:i a')
+TIME_ZONE = getattr(configuration, 'TIME_ZONE', 'UTC')
+
 CSRF_TRUSTED_ORIGINS = ALLOWED_HOSTS
 
 # Attempt to import LDAP configuration if it has been defined
@@ -73,8 +82,10 @@ if LDAP_CONFIGURED:
         logger.addHandler(logging.StreamHandler())
         logger.setLevel(logging.DEBUG)
     except ImportError:
-        raise ImproperlyConfigured("LDAP authentication has been configured, but django-auth-ldap is not installed. "
-                                   "You can remove netbox/ldap_config.py to disable LDAP.")
+        raise ImproperlyConfigured(
+            "LDAP authentication has been configured, but django-auth-ldap is not installed. You can remove "
+            "netbox/ldap_config.py to disable LDAP."
+        )
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -102,7 +113,9 @@ INSTALLED_APPS = (
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'django.contrib.humanize',
+    'corsheaders',
     'debug_toolbar',
+    'django_filters',
     'django_tables2',
     'mptt',
     'rest_framework',
@@ -120,6 +133,7 @@ INSTALLED_APPS = (
 # Middleware
 MIDDLEWARE = (
     'debug_toolbar.middleware.DebugToolbarMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -129,6 +143,7 @@ MIDDLEWARE = (
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'utilities.middleware.LoginRequiredMiddleware',
+    'utilities.middleware.APIVersionMiddleware',
 )
 
 ROOT_URLCONF = 'netbox.urls'
@@ -142,6 +157,7 @@ TEMPLATES = [
             'context_processors': [
                 'django.template.context_processors.debug',
                 'django.template.context_processors.request',
+                'django.template.context_processors.media',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
                 'utilities.context_processors.settings',
@@ -156,18 +172,20 @@ SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 USE_X_FORWARDED_HOST = True
 
 # Internationalization
-# https://docs.djangoproject.com/en/1.8/topics/i18n/
 LANGUAGE_CODE = 'en-us'
 USE_I18N = True
 USE_TZ = True
 
 # Static files (CSS, JavaScript, Images)
-# https://docs.djangoproject.com/en/1.8/howto/static-files/
 STATIC_ROOT = BASE_DIR + '/static/'
 STATIC_URL = '/{}static/'.format(BASE_PATH)
 STATICFILES_DIRS = (
     os.path.join(BASE_DIR, "project-static"),
 )
+
+# Media
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+MEDIA_URL = '/{}media/'.format(BASE_PATH)
 
 # Disable default limit of 1000 fields per request. Needed for bulk deletion of objects. (Added in Django 1.10.)
 DATA_UPLOAD_MAX_NUMBER_FIELDS = None
@@ -183,14 +201,35 @@ LOGIN_URL = '/{}login/'.format(BASE_PATH)
 # Secrets
 SECRETS_MIN_PUBKEY_SIZE = 2048
 
-# Django REST framework
+# Django REST framework (API)
+REST_FRAMEWORK_VERSION = VERSION[0:3]  # Use major.minor as API version
 REST_FRAMEWORK = {
-    'DEFAULT_FILTER_BACKENDS': ('rest_framework.filters.DjangoFilterBackend',)
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework.authentication.SessionAuthentication',
+        'utilities.api.TokenAuthentication',
+    ),
+    'DEFAULT_FILTER_BACKENDS': (
+        'rest_framework.filters.DjangoFilterBackend',
+    ),
+    'DEFAULT_PAGINATION_CLASS': 'utilities.api.OptionalLimitOffsetPagination',
+    'DEFAULT_PERMISSION_CLASSES': (
+        'utilities.api.TokenPermissions',
+    ),
+    'DEFAULT_VERSION': REST_FRAMEWORK_VERSION,
+    'ALLOWED_VERSIONS': [REST_FRAMEWORK_VERSION],
+    'DEFAULT_VERSIONING_CLASS': 'rest_framework.versioning.AcceptHeaderVersioning',
+    'PAGE_SIZE': PAGINATE_COUNT,
 }
-if LOGIN_REQUIRED:
-    REST_FRAMEWORK['DEFAULT_PERMISSION_CLASSES'] = ('rest_framework.permissions.IsAuthenticated',)
 
 # Django debug toolbar
+# Disable the templates panel by default due to a performance issue in Django 1.11; see
+# https://github.com/jazzband/django-debug-toolbar/issues/910
+DEBUG_TOOLBAR_CONFIG = {
+    'DISABLE_PANELS': [
+        'debug_toolbar.panels.redirects.RedirectsPanel',
+        'debug_toolbar.panels.templates.TemplatesPanel',
+    ],
+}
 INTERNAL_IPS = (
     '127.0.0.1',
     '::1',

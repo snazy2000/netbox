@@ -1,4 +1,8 @@
+from __future__ import unicode_literals
+
 from django.contrib import messages
+from django.utils.html import escape
+from django.utils.safestring import mark_safe
 
 
 def handle_protectederror(obj, request, e):
@@ -12,12 +16,12 @@ def handle_protectederror(obj, request, e):
 
     # Grammar for single versus multiple triggering objects
     if type(obj) in (list, tuple):
-        err_message = u"Unable to delete the requested {}. The following dependent {} were found: ".format(
+        err_message = "Unable to delete the requested {}. The following dependent {} were found: ".format(
             obj[0]._meta.verbose_name_plural,
             dep_class,
         )
     else:
-        err_message = u"Unable to delete {} {}. The following dependent {} were found: ".format(
+        err_message = "Unable to delete {} {}. The following dependent {} were found: ".format(
             obj._meta.verbose_name,
             obj,
             dep_class,
@@ -25,11 +29,11 @@ def handle_protectederror(obj, request, e):
 
     # Append dependent objects to error message
     dependent_objects = []
-    for o in e.protected_objects:
-        if hasattr(o, 'get_absolute_url'):
-            dependent_objects.append(u'<a href="{}">{}</a>'.format(o.get_absolute_url(), o))
+    for obj in e.protected_objects:
+        if hasattr(obj, 'get_absolute_url'):
+            dependent_objects.append('<a href="{}">{}</a>'.format(obj.get_absolute_url(), escape(obj)))
         else:
-            dependent_objects.append(str(o))
-    err_message += u', '.join(dependent_objects)
+            dependent_objects.append(str(obj))
+    err_message += ', '.join(dependent_objects)
 
-    messages.error(request, err_message)
+    messages.error(request, mark_safe(err_message))

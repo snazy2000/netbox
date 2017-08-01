@@ -1,3 +1,5 @@
+from __future__ import unicode_literals
+
 import django_filters
 
 from django.db.models import Q
@@ -7,6 +9,13 @@ from dcim.models import Device
 from utilities.filters import NumericInFilter
 
 
+class SecretRoleFilter(django_filters.FilterSet):
+
+    class Meta:
+        model = SecretRole
+        fields = ['name', 'slug']
+
+
 class SecretFilter(django_filters.FilterSet):
     id__in = NumericInFilter(name='id', lookup_expr='in')
     q = django_filters.CharFilter(
@@ -14,7 +23,6 @@ class SecretFilter(django_filters.FilterSet):
         label='Search',
     )
     role_id = django_filters.ModelMultipleChoiceFilter(
-        name='role',
         queryset=SecretRole.objects.all(),
         label='Role (ID)',
     )
@@ -24,11 +32,15 @@ class SecretFilter(django_filters.FilterSet):
         to_field_name='slug',
         label='Role (slug)',
     )
+    device_id = django_filters.ModelMultipleChoiceFilter(
+        queryset=Device.objects.all(),
+        label='Device (ID)',
+    )
     device = django_filters.ModelMultipleChoiceFilter(
-        name='device',
+        name='device__name',
         queryset=Device.objects.all(),
         to_field_name='name',
-        label='Device (Name)',
+        label='Device (name)',
     )
 
     class Meta:

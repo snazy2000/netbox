@@ -1,3 +1,5 @@
+from __future__ import unicode_literals
+
 from markdown import markdown
 
 from django import template
@@ -52,35 +54,50 @@ def contains(value, arg):
     return any(s in value for s in arg.split(','))
 
 
+@register.filter()
+def bettertitle(value):
+    """
+    Alternative to the builtin title(); uppercases words without replacing letters that are already uppercase.
+    """
+    return ' '.join([w[0].upper() + w[1:] for w in value.split()])
+
+
+@register.filter()
+def example_choices(field, arg=3):
+    """
+    Returns a number (default: 3) of example choices for a ChoiceFiled (useful for CSV import forms).
+    """
+    examples = []
+    if hasattr(field, 'queryset'):
+        choices = [(obj.pk, getattr(obj, field.to_field_name)) for obj in field.queryset[:arg + 1]]
+    else:
+        choices = field.choices
+    for id, label in choices:
+        if len(examples) == arg:
+            examples.append('etc.')
+            break
+        if not id:
+            continue
+        examples.append(label)
+    return ', '.join(examples) or 'None'
+
+
 #
 # Tags
 #
 
 @register.simple_tag()
-def querystring_toggle(request, multi=True, page_key='page', **kwargs):
+def querystring(request, **kwargs):
     """
-    Add or remove a parameter in the HTTP GET query string
+    Append or update the page number in a querystring.
     """
-    new_querydict = request.GET.copy()
-
-    # Remove page number from querystring
-    try:
-        new_querydict.pop(page_key)
-    except KeyError:
-        pass
-
-    # Add/toggle parameters
+    querydict = request.GET.copy()
     for k, v in kwargs.items():
-        values = new_querydict.getlist(k)
-        if k in new_querydict and v in values:
-            values.remove(v)
-            new_querydict.setlist(k, values)
-        elif not multi:
-            new_querydict[k] = v
-        else:
-            new_querydict.update({k: v})
-
-    querystring = new_querydict.urlencode()
+        if v is not None:
+            querydict[k] = v
+        elif k in querydict:
+            querydict.pop(k)
+    querystring = querydict.urlencode()
     if querystring:
         return '?' + querystring
     else:

@@ -1,4 +1,6 @@
+from __future__ import unicode_literals
 from collections import OrderedDict
+from itertools import count, groupby
 
 from mptt.models import MPTTModel, TreeForeignKey
 
@@ -8,198 +10,22 @@ from django.contrib.contenttypes.models import ContentType
 from django.contrib.contenttypes.fields import GenericRelation
 from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
-from django.core.urlresolvers import reverse
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.db.models import Count, Q, ObjectDoesNotExist
+from django.urls import reverse
 from django.utils.encoding import python_2_unicode_compatible
 
 from circuits.models import Circuit
-from extras.models import CustomFieldModel, CustomField, CustomFieldValue
+from extras.models import CustomFieldModel, CustomField, CustomFieldValue, ImageAttachment
 from extras.rpc import RPC_CLIENTS
 from tenancy.models import Tenant
 from utilities.fields import ColorField, NullableCharField
 from utilities.managers import NaturalOrderByManager
 from utilities.models import CreatedUpdatedModel
 from utilities.utils import csv_format
-
+from .constants import *
 from .fields import ASNField, MACAddressField
-
-
-RACK_TYPE_2POST = 100
-RACK_TYPE_4POST = 200
-RACK_TYPE_CABINET = 300
-RACK_TYPE_WALLFRAME = 1000
-RACK_TYPE_WALLCABINET = 1100
-RACK_TYPE_CHOICES = (
-    (RACK_TYPE_2POST, '2-post frame'),
-    (RACK_TYPE_4POST, '4-post frame'),
-    (RACK_TYPE_CABINET, '4-post cabinet'),
-    (RACK_TYPE_WALLFRAME, 'Wall-mounted frame'),
-    (RACK_TYPE_WALLCABINET, 'Wall-mounted cabinet'),
-)
-
-RACK_WIDTH_19IN = 19
-RACK_WIDTH_23IN = 23
-RACK_WIDTH_CHOICES = (
-    (RACK_WIDTH_19IN, '19 inches'),
-    (RACK_WIDTH_23IN, '23 inches'),
-)
-
-RACK_FACE_FRONT = 0
-RACK_FACE_REAR = 1
-RACK_FACE_CHOICES = [
-    [RACK_FACE_FRONT, 'Front'],
-    [RACK_FACE_REAR, 'Rear'],
-]
-
-SUBDEVICE_ROLE_PARENT = True
-SUBDEVICE_ROLE_CHILD = False
-SUBDEVICE_ROLE_CHOICES = (
-    (None, 'None'),
-    (SUBDEVICE_ROLE_PARENT, 'Parent'),
-    (SUBDEVICE_ROLE_CHILD, 'Child'),
-)
-
-IFACE_ORDERING_POSITION = 1
-IFACE_ORDERING_NAME = 2
-IFACE_ORDERING_CHOICES = [
-    [IFACE_ORDERING_POSITION, 'Slot/position'],
-    [IFACE_ORDERING_NAME, 'Name (alphabetically)']
-]
-
-# Virtual
-IFACE_FF_VIRTUAL = 0
-IFACE_FF_LAG = 200
-# Ethernet
-IFACE_FF_100ME_FIXED = 800
-IFACE_FF_1GE_FIXED = 1000
-IFACE_FF_1GE_GBIC = 1050
-IFACE_FF_1GE_SFP = 1100
-IFACE_FF_10GE_FIXED = 1150
-IFACE_FF_10GE_SFP_PLUS = 1200
-IFACE_FF_10GE_XFP = 1300
-IFACE_FF_10GE_XENPAK = 1310
-IFACE_FF_10GE_X2 = 1320
-IFACE_FF_25GE_SFP28 = 1350
-IFACE_FF_40GE_QSFP_PLUS = 1400
-IFACE_FF_100GE_CFP = 1500
-IFACE_FF_100GE_QSFP28 = 1600
-# Fibrechannel
-IFACE_FF_1GFC_SFP = 3010
-IFACE_FF_2GFC_SFP = 3020
-IFACE_FF_4GFC_SFP = 3040
-IFACE_FF_8GFC_SFP_PLUS = 3080
-IFACE_FF_16GFC_SFP_PLUS = 3160
-# Serial
-IFACE_FF_T1 = 4000
-IFACE_FF_E1 = 4010
-IFACE_FF_T3 = 4040
-IFACE_FF_E3 = 4050
-# Stacking
-IFACE_FF_STACKWISE = 5000
-IFACE_FF_STACKWISE_PLUS = 5050
-IFACE_FF_FLEXSTACK = 5100
-IFACE_FF_FLEXSTACK_PLUS = 5150
-# Other
-IFACE_FF_OTHER = 32767
-
-IFACE_FF_CHOICES = [
-    [
-        'Virtual interfaces',
-        [
-            [IFACE_FF_VIRTUAL, 'Virtual'],
-            [IFACE_FF_LAG, 'Link Aggregation Group (LAG)'],
-        ]
-    ],
-    [
-        'Ethernet (fixed)',
-        [
-            [IFACE_FF_100ME_FIXED, '100BASE-TX (10/100ME)'],
-            [IFACE_FF_1GE_FIXED, '1000BASE-T (1GE)'],
-            [IFACE_FF_10GE_FIXED, '10GBASE-T (10GE)'],
-        ]
-    ],
-    [
-        'Ethernet (modular)',
-        [
-            [IFACE_FF_1GE_GBIC, 'GBIC (1GE)'],
-            [IFACE_FF_1GE_SFP, 'SFP (1GE)'],
-            [IFACE_FF_10GE_SFP_PLUS, 'SFP+ (10GE)'],
-            [IFACE_FF_10GE_XFP, 'XFP (10GE)'],
-            [IFACE_FF_10GE_XENPAK, 'XENPAK (10GE)'],
-            [IFACE_FF_10GE_X2, 'X2 (10GE)'],
-            [IFACE_FF_25GE_SFP28, 'SFP28 (25GE)'],
-            [IFACE_FF_40GE_QSFP_PLUS, 'QSFP+ (40GE)'],
-            [IFACE_FF_100GE_CFP, 'CFP (100GE)'],
-            [IFACE_FF_100GE_QSFP28, 'QSFP28 (100GE)'],
-        ]
-    ],
-    [
-        'FibreChannel',
-        [
-            [IFACE_FF_1GFC_SFP, 'SFP (1GFC)'],
-            [IFACE_FF_2GFC_SFP, 'SFP (2GFC)'],
-            [IFACE_FF_4GFC_SFP, 'SFP (4GFC)'],
-            [IFACE_FF_8GFC_SFP_PLUS, 'SFP+ (8GFC)'],
-            [IFACE_FF_16GFC_SFP_PLUS, 'SFP+ (16GFC)'],
-        ]
-    ],
-    [
-        'Serial',
-        [
-            [IFACE_FF_T1, 'T1 (1.544 Mbps)'],
-            [IFACE_FF_E1, 'E1 (2.048 Mbps)'],
-            [IFACE_FF_T3, 'T3 (45 Mbps)'],
-            [IFACE_FF_E3, 'E3 (34 Mbps)'],
-            [IFACE_FF_E3, 'E3 (34 Mbps)'],
-        ]
-    ],
-    [
-        'Stacking',
-        [
-            [IFACE_FF_STACKWISE, 'Cisco StackWise'],
-            [IFACE_FF_STACKWISE_PLUS, 'Cisco StackWise Plus'],
-            [IFACE_FF_FLEXSTACK, 'Cisco FlexStack'],
-            [IFACE_FF_FLEXSTACK_PLUS, 'Cisco FlexStack Plus'],
-        ]
-    ],
-    [
-        'Other',
-        [
-            [IFACE_FF_OTHER, 'Other'],
-        ]
-    ],
-]
-
-VIRTUAL_IFACE_TYPES = [
-    IFACE_FF_VIRTUAL,
-    IFACE_FF_LAG,
-]
-
-STATUS_ACTIVE = True
-STATUS_OFFLINE = False
-STATUS_CHOICES = [
-    [STATUS_ACTIVE, 'Active'],
-    [STATUS_OFFLINE, 'Offline'],
-]
-
-CONNECTION_STATUS_PLANNED = False
-CONNECTION_STATUS_CONNECTED = True
-CONNECTION_STATUS_CHOICES = [
-    [CONNECTION_STATUS_PLANNED, 'Planned'],
-    [CONNECTION_STATUS_CONNECTED, 'Connected'],
-]
-
-# For mapping platform -> NC client
-RPC_CLIENT_JUNIPER_JUNOS = 'juniper-junos'
-RPC_CLIENT_CISCO_IOS = 'cisco-ios'
-RPC_CLIENT_OPENGEAR = 'opengear'
-RPC_CLIENT_CHOICES = [
-    [RPC_CLIENT_JUNIPER_JUNOS, 'Juniper Junos (NETCONF)'],
-    [RPC_CLIENT_CISCO_IOS, 'Cisco IOS (SSH)'],
-    [RPC_CLIENT_OPENGEAR, 'Opengear (SSH)'],
-]
 
 
 #
@@ -211,7 +37,9 @@ class Region(MPTTModel):
     """
     Sites can be grouped within geographic Regions.
     """
-    parent = TreeForeignKey('self', null=True, blank=True, related_name='children', db_index=True)
+    parent = TreeForeignKey(
+        'self', null=True, blank=True, related_name='children', db_index=True, on_delete=models.CASCADE
+    )
     name = models.CharField(max_length=50, unique=True)
     slug = models.SlugField(unique=True)
 
@@ -254,8 +82,13 @@ class Site(CreatedUpdatedModel, CustomFieldModel):
     contact_email = models.EmailField(blank=True, verbose_name="Contact E-mail")
     comments = models.TextField(blank=True)
     custom_field_values = GenericRelation(CustomFieldValue, content_type_field='obj_type', object_id_field='obj_id')
+    images = GenericRelation(ImageAttachment)
 
     objects = SiteManager()
+
+    csv_headers = [
+        'name', 'slug', 'region', 'tenant', 'facility', 'asn', 'contact_name', 'contact_phone', 'contact_email',
+    ]
 
     class Meta:
         ordering = ['name']
@@ -313,7 +146,7 @@ class RackGroup(models.Model):
     """
     name = models.CharField(max_length=50)
     slug = models.SlugField()
-    site = models.ForeignKey('Site', related_name='rack_groups')
+    site = models.ForeignKey('Site', related_name='rack_groups', on_delete=models.CASCADE)
 
     class Meta:
         ordering = ['site', 'name']
@@ -323,7 +156,7 @@ class RackGroup(models.Model):
         ]
 
     def __str__(self):
-        return u'{} - {}'.format(self.site.name, self.name)
+        return self.name
 
     def get_absolute_url(self):
         return "{}?group_id={}".format(reverse('dcim:rack_list'), self.pk)
@@ -375,8 +208,13 @@ class Rack(CreatedUpdatedModel, CustomFieldModel):
                                      help_text='Units are numbered top-to-bottom')
     comments = models.TextField(blank=True)
     custom_field_values = GenericRelation(CustomFieldValue, content_type_field='obj_type', object_id_field='obj_id')
+    images = GenericRelation(ImageAttachment)
 
     objects = RackManager()
+
+    csv_headers = [
+        'site', 'group_name', 'name', 'facility_id', 'tenant', 'role', 'type', 'width', 'u_height', 'desc_units',
+    ]
 
     class Meta:
         ordering = ['site', 'name']
@@ -386,7 +224,7 @@ class Rack(CreatedUpdatedModel, CustomFieldModel):
         ]
 
     def __str__(self):
-        return self.display_name
+        return self.display_name or super(Rack, self).__str__()
 
     def get_absolute_url(self):
         return reverse('dcim:rack', args=[self.pk])
@@ -442,8 +280,10 @@ class Rack(CreatedUpdatedModel, CustomFieldModel):
     @property
     def display_name(self):
         if self.facility_id:
-            return u"{} ({})".format(self.name, self.facility_id)
-        return self.name
+            return "{} ({})".format(self.name, self.facility_id)
+        elif self.name:
+            return self.name
+        return ""
 
     def get_rack_units(self, face=RACK_FACE_FRONT, exclude=None, remove_redundant=False):
         """
@@ -533,7 +373,7 @@ class RackReservation(models.Model):
     """
     One or more reserved units within a Rack.
     """
-    rack = models.ForeignKey('Rack', related_name='reservations', editable=False, on_delete=models.CASCADE)
+    rack = models.ForeignKey('Rack', related_name='reservations', on_delete=models.CASCADE)
     units = ArrayField(models.PositiveSmallIntegerField())
     created = models.DateTimeField(auto_now_add=True)
     user = models.ForeignKey(User, editable=False, on_delete=models.PROTECT)
@@ -543,7 +383,7 @@ class RackReservation(models.Model):
         ordering = ['created']
 
     def __str__(self):
-        return u"Reservation for rack {}".format(self.rack)
+        return "Reservation for rack {}".format(self.rack)
 
     def clean(self):
 
@@ -553,7 +393,7 @@ class RackReservation(models.Model):
             invalid_units = [u for u in self.units if u not in self.rack.units]
             if invalid_units:
                 raise ValidationError({
-                    'units': u"Invalid unit(s) for {}U rack: {}".format(
+                    'units': "Invalid unit(s) for {}U rack: {}".format(
                         self.rack.u_height,
                         ', '.join([str(u) for u in invalid_units]),
                     ),
@@ -570,6 +410,15 @@ class RackReservation(models.Model):
                         ', '.join([str(u) for u in conflicting_units]),
                     )
                 })
+
+    @property
+    def unit_list(self):
+        """
+        Express the assigned units as a string of summarized ranges. For example:
+            [0, 1, 2, 10, 14, 15, 16] => "0-2, 10, 14-16"
+        """
+        group = (list(x) for _, x in groupby(sorted(self.units), lambda x, c=count(): next(c) - x))
+        return ', '.join('-'.join(map(str, (g[0], g[-1])[:len(g)])) for g in group)
 
 
 #
@@ -698,7 +547,7 @@ class DeviceType(models.Model, CustomFieldModel):
 
     @property
     def full_name(self):
-        return u'{} {}'.format(self.manufacturer.name, self.model)
+        return '{} {}'.format(self.manufacturer.name, self.model)
 
     @property
     def is_parent_device(self):
@@ -773,17 +622,17 @@ class PowerOutletTemplate(models.Model):
         return self.name
 
 
-class InterfaceManager(models.Manager):
+class InterfaceQuerySet(models.QuerySet):
 
     def order_naturally(self, method=IFACE_ORDERING_POSITION):
         """
-        Naturally order interfaces by their name and numeric position. The sort method must be one of the defined
+        Naturally order interfaces by their type and numeric position. The sort method must be one of the defined
         IFACE_ORDERING_CHOICES (typically indicated by a parent Device's DeviceType).
 
-        To order interfaces naturally, the `name` field is split into five distinct components: leading text (name),
-        slot, subslot, position, and channel:
+        To order interfaces naturally, the `name` field is split into six distinct components: leading text (type),
+        slot, subslot, position, channel, and virtual circuit:
 
-            {name}{slot}/{subslot}/{position}:{channel}
+            {type}{slot}/{subslot}/{position}:{channel}.{vc}
 
         Components absent from the interface name are ignored. For example, an interface named GigabitEthernet0/1 would
         be parsed as follows:
@@ -793,22 +642,31 @@ class InterfaceManager(models.Manager):
             subslot = 0
             position = 1
             channel = None
+            vc = 0
 
-        The chosen sorting method will determine which fields are ordered first in the query.
+        The original `name` field is taken as a whole to serve as a fallback in the event interfaces do not match any of
+        the prescribed fields.
         """
-        queryset = self.get_queryset()
-        sql_col = '{}.name'.format(queryset.model._meta.db_table)
+        sql_col = '{}.name'.format(self.model._meta.db_table)
         ordering = {
-            IFACE_ORDERING_POSITION: ('_slot', '_subslot', '_position', '_channel', '_name'),
-            IFACE_ORDERING_NAME: ('_name', '_slot', '_subslot', '_position', '_channel'),
+            IFACE_ORDERING_POSITION: ('_slot', '_subslot', '_position', '_channel', '_vc', '_type', 'name'),
+            IFACE_ORDERING_NAME: ('_type', '_slot', '_subslot', '_position', '_channel', '_vc', 'name'),
         }[method]
-        return queryset.extra(select={
-            '_name': "SUBSTRING({} FROM '^([^0-9]+)')".format(sql_col),
-            '_slot': "CAST(SUBSTRING({} FROM '([0-9]+)\/[0-9]+\/[0-9]+(:[0-9]+)?$') AS integer)".format(sql_col),
-            '_subslot': "CAST(SUBSTRING({} FROM '([0-9]+)\/[0-9]+(:[0-9]+)?$') AS integer)".format(sql_col),
-            '_position': "CAST(SUBSTRING({} FROM '([0-9]+)(:[0-9]+)?$') AS integer)".format(sql_col),
-            '_channel': "CAST(SUBSTRING({} FROM ':([0-9]+)$') AS integer)".format(sql_col),
+        return self.extra(select={
+            '_type': "SUBSTRING({} FROM '^([^0-9]+)')".format(sql_col),
+            '_slot': "CAST(SUBSTRING({} FROM '([0-9]+)\/[0-9]+\/[0-9]+(:[0-9]+)?(\.[0-9]+)?$') AS integer)".format(sql_col),
+            '_subslot': "CAST(SUBSTRING({} FROM '([0-9]+)\/[0-9]+(:[0-9]+)?(\.[0-9]+)?$') AS integer)".format(sql_col),
+            '_position': "CAST(SUBSTRING({} FROM '([0-9]+)(:[0-9]+)?(\.[0-9]+)?$') AS integer)".format(sql_col),
+            '_channel': "COALESCE(CAST(SUBSTRING({} FROM ':([0-9]+)(\.[0-9]+)?$') AS integer), 0)".format(sql_col),
+            '_vc': "COALESCE(CAST(SUBSTRING({} FROM '\.([0-9]+)$') AS integer), 0)".format(sql_col),
         }).order_by(*ordering)
+
+    def connectable(self):
+        """
+        Return only physical interfaces which are capable of being connected to other interfaces (i.e. not virtual or
+        wireless).
+        """
+        return self.exclude(form_factor__in=NONCONNECTABLE_IFACE_TYPES)
 
 
 @python_2_unicode_compatible
@@ -821,7 +679,7 @@ class InterfaceTemplate(models.Model):
     form_factor = models.PositiveSmallIntegerField(choices=IFACE_FF_CHOICES, default=IFACE_FF_10GE_SFP_PLUS)
     mgmt_only = models.BooleanField(default=False, verbose_name='Management only')
 
-    objects = InterfaceManager()
+    objects = InterfaceQuerySet.as_manager()
 
     class Meta:
         ordering = ['device_type', 'name']
@@ -880,7 +738,10 @@ class Platform(models.Model):
     """
     name = models.CharField(max_length=50, unique=True)
     slug = models.SlugField(unique=True)
-    rpc_client = models.CharField(max_length=30, choices=RPC_CLIENT_CHOICES, blank=True, verbose_name='RPC client')
+    napalm_driver = models.CharField(max_length=50, blank=True, verbose_name='NAPALM driver',
+                                     help_text="The name of the NAPALM driver to use when interacting with devices.")
+    rpc_client = models.CharField(max_length=30, choices=RPC_CLIENT_CHOICES, blank=True,
+                                  verbose_name='Legacy RPC client')
 
     class Meta:
         ordering = ['name']
@@ -904,11 +765,11 @@ class Device(CreatedUpdatedModel, CustomFieldModel):
     A Device represents a piece of physical hardware mounted within a Rack. Each Device is assigned a DeviceType,
     DeviceRole, and (optionally) a Platform. Device names are not required, however if one is set it must be unique.
 
-    Each Device must be assigned to a Rack, although associating it with a particular rack face or unit is optional (for
-    example, vertically mounted PDUs do not consume rack units).
+    Each Device must be assigned to a site, and optionally to a rack within that site. Associating a device with a
+    particular rack face or unit is optional (for example, vertically mounted PDUs do not consume rack units).
 
-    When a new Device is created, console/power/interface components are created along with it as dictated by the
-    component templates assigned to its DeviceType. Components can also be added, modified, or deleted after the
+    When a new Device is created, console/power/interface/device bay components are created along with it as dictated
+    by the component templates assigned to its DeviceType. Components can also be added, modified, or deleted after the
     creation of a Device.
     """
     device_type = models.ForeignKey('DeviceType', related_name='instances', on_delete=models.PROTECT)
@@ -917,30 +778,47 @@ class Device(CreatedUpdatedModel, CustomFieldModel):
     platform = models.ForeignKey('Platform', related_name='devices', blank=True, null=True, on_delete=models.SET_NULL)
     name = NullableCharField(max_length=64, blank=True, null=True, unique=True)
     serial = models.CharField(max_length=50, blank=True, verbose_name='Serial number')
-    asset_tag = NullableCharField(max_length=50, blank=True, null=True, unique=True, verbose_name='Asset tag',
-                                  help_text='A unique tag used to identify this device')
+    asset_tag = NullableCharField(
+        max_length=50, blank=True, null=True, unique=True, verbose_name='Asset tag',
+        help_text='A unique tag used to identify this device'
+    )
     site = models.ForeignKey('Site', related_name='devices', on_delete=models.PROTECT)
     rack = models.ForeignKey('Rack', related_name='devices', blank=True, null=True, on_delete=models.PROTECT)
-    position = models.PositiveSmallIntegerField(blank=True, null=True, validators=[MinValueValidator(1)],
-                                                verbose_name='Position (U)',
-                                                help_text='The lowest-numbered unit occupied by the device')
+    position = models.PositiveSmallIntegerField(
+        blank=True, null=True, validators=[MinValueValidator(1)], verbose_name='Position (U)',
+        help_text='The lowest-numbered unit occupied by the device'
+    )
     face = models.PositiveSmallIntegerField(blank=True, null=True, choices=RACK_FACE_CHOICES, verbose_name='Rack face')
-    status = models.BooleanField(choices=STATUS_CHOICES, default=STATUS_ACTIVE, verbose_name='Status')
-    primary_ip4 = models.OneToOneField('ipam.IPAddress', related_name='primary_ip4_for', on_delete=models.SET_NULL,
-                                       blank=True, null=True, verbose_name='Primary IPv4')
-    primary_ip6 = models.OneToOneField('ipam.IPAddress', related_name='primary_ip6_for', on_delete=models.SET_NULL,
-                                       blank=True, null=True, verbose_name='Primary IPv6')
+    status = models.PositiveSmallIntegerField(choices=STATUS_CHOICES, default=STATUS_ACTIVE, verbose_name='Status')
+    primary_ip4 = models.OneToOneField(
+        'ipam.IPAddress', related_name='primary_ip4_for', on_delete=models.SET_NULL, blank=True, null=True,
+        verbose_name='Primary IPv4'
+    )
+    primary_ip6 = models.OneToOneField(
+        'ipam.IPAddress', related_name='primary_ip6_for', on_delete=models.SET_NULL, blank=True, null=True,
+        verbose_name='Primary IPv6'
+    )
     comments = models.TextField(blank=True)
     custom_field_values = GenericRelation(CustomFieldValue, content_type_field='obj_type', object_id_field='obj_id')
+    images = GenericRelation(ImageAttachment)
 
     objects = DeviceManager()
+
+    csv_headers = [
+        'name', 'device_role', 'tenant', 'manufacturer', 'model_name', 'platform', 'serial', 'asset_tag', 'status',
+        'site', 'rack_group', 'rack_name', 'position', 'face',
+    ]
 
     class Meta:
         ordering = ['name']
         unique_together = ['rack', 'position', 'face']
+        permissions = (
+            ('napalm_read', 'Read-only access to devices via NAPALM'),
+            ('napalm_write', 'Read/write access to devices via NAPALM'),
+        )
 
     def __str__(self):
-        return self.display_name
+        return self.display_name or super(Device, self).__str__()
 
     def get_absolute_url(self):
         return reverse('dcim:device', args=[self.pk])
@@ -1048,7 +926,9 @@ class Device(CreatedUpdatedModel, CustomFieldModel):
             self.platform.name if self.platform else None,
             self.serial,
             self.asset_tag,
+            self.get_status_display(),
             self.site.name,
+            self.rack.group.name if self.rack and self.rack.group else None,
             self.rack.name if self.rack else None,
             self.position,
             self.get_face_display(),
@@ -1058,12 +938,9 @@ class Device(CreatedUpdatedModel, CustomFieldModel):
     def display_name(self):
         if self.name:
             return self.name
-        elif self.position:
-            return u"{} ({} U{})".format(self.device_type, self.rack.name, self.position)
-        elif self.rack:
-            return u"{} ({})".format(self.device_type, self.rack.name)
-        else:
-            return u"{} ({})".format(self.device_type, self.site.name)
+        elif hasattr(self, 'device_type'):
+            return "{}".format(self.device_type)
+        return ""
 
     @property
     def identifier(self):
@@ -1091,6 +968,9 @@ class Device(CreatedUpdatedModel, CustomFieldModel):
         """
         return Device.objects.filter(parent_bay__device=self.pk)
 
+    def get_status_class(self):
+        return DEVICE_STATUS_CLASSES[self.status]
+
     def get_rpc_client(self):
         """
         Return the appropriate RPC (e.g. NETCONF, ssh, etc.) client for this device's platform, if one is defined.
@@ -1114,6 +994,8 @@ class ConsolePort(models.Model):
     cs_port = models.OneToOneField('ConsoleServerPort', related_name='connected_console', on_delete=models.SET_NULL,
                                    verbose_name='Console server port', blank=True, null=True)
     connection_status = models.NullBooleanField(choices=CONNECTION_STATUS_CHOICES, default=CONNECTION_STATUS_CONNECTED)
+
+    csv_headers = ['console_server', 'cs_port', 'device', 'console_port', 'connection_status']
 
     class Meta:
         ordering = ['device', 'name']
@@ -1184,6 +1066,8 @@ class PowerPort(models.Model):
                                         blank=True, null=True)
     connection_status = models.NullBooleanField(choices=CONNECTION_STATUS_CHOICES, default=CONNECTION_STATUS_CONNECTED)
 
+    csv_headers = ['pdu', 'power_outlet', 'device', 'power_port', 'connection_status']
+
     class Meta:
         ordering = ['device', 'name']
         unique_together = ['device', 'name']
@@ -1243,16 +1127,27 @@ class Interface(models.Model):
     of an InterfaceConnection.
     """
     device = models.ForeignKey('Device', related_name='interfaces', on_delete=models.CASCADE)
-    lag = models.ForeignKey('self', related_name='member_interfaces', null=True, blank=True, on_delete=models.SET_NULL,
-                            verbose_name='Parent LAG')
+    lag = models.ForeignKey(
+        'self',
+        models.SET_NULL,
+        related_name='member_interfaces',
+        null=True,
+        blank=True,
+        verbose_name='Parent LAG'
+    )
     name = models.CharField(max_length=30)
     form_factor = models.PositiveSmallIntegerField(choices=IFACE_FF_CHOICES, default=IFACE_FF_10GE_SFP_PLUS)
+    enabled = models.BooleanField(default=True)
     mac_address = MACAddressField(null=True, blank=True, verbose_name='MAC Address')
-    mgmt_only = models.BooleanField(default=False, verbose_name='OOB Management',
-                                    help_text="This interface is used only for out-of-band management")
+    mtu = models.PositiveSmallIntegerField(blank=True, null=True, verbose_name='MTU')
+    mgmt_only = models.BooleanField(
+        default=False,
+        verbose_name='OOB Management',
+        help_text="This interface is used only for out-of-band management"
+    )
     description = models.CharField(max_length=100, blank=True)
 
-    objects = InterfaceManager()
+    objects = InterfaceQuerySet.as_manager()
 
     class Meta:
         ordering = ['device', 'name']
@@ -1264,37 +1159,41 @@ class Interface(models.Model):
     def clean(self):
 
         # Virtual interfaces cannot be connected
-        if self.form_factor in VIRTUAL_IFACE_TYPES and self.is_connected:
+        if self.form_factor in NONCONNECTABLE_IFACE_TYPES and self.is_connected:
             raise ValidationError({
-                'form_factor': "Virtual interfaces cannot be connected to another interface or circuit. Disconnect the "
-                               "interface or choose a physical form factor."
+                'form_factor': "Virtual and wireless interfaces cannot be connected to another interface or circuit. "
+                               "Disconnect the interface or choose a suitable form factor."
             })
 
         # An interface's LAG must belong to the same device
         if self.lag and self.lag.device != self.device:
             raise ValidationError({
-                'lag': u"The selected LAG interface ({}) belongs to a different device ({}).".format(
+                'lag': "The selected LAG interface ({}) belongs to a different device ({}).".format(
                     self.lag.name, self.lag.device.name
                 )
             })
 
         # A virtual interface cannot have a parent LAG
-        if self.form_factor in VIRTUAL_IFACE_TYPES and self.lag is not None:
+        if self.form_factor in NONCONNECTABLE_IFACE_TYPES and self.lag is not None:
             raise ValidationError({
-                'lag': u"{} interfaces cannot have a parent LAG interface.".format(self.get_form_factor_display())
+                'lag': "{} interfaces cannot have a parent LAG interface.".format(self.get_form_factor_display())
             })
 
         # Only a LAG can have LAG members
         if self.form_factor != IFACE_FF_LAG and self.member_interfaces.exists():
             raise ValidationError({
                 'form_factor': "Cannot change interface form factor; it has LAG members ({}).".format(
-                    u", ".join([iface.name for iface in self.member_interfaces.all()])
+                    ", ".join([iface.name for iface in self.member_interfaces.all()])
                 )
             })
 
     @property
     def is_virtual(self):
         return self.form_factor in VIRTUAL_IFACE_TYPES
+
+    @property
+    def is_wireless(self):
+        return self.form_factor in WIRELESS_IFACE_TYPES
 
     @property
     def is_lag(self):
@@ -1345,11 +1244,16 @@ class InterfaceConnection(models.Model):
     connection_status = models.BooleanField(choices=CONNECTION_STATUS_CHOICES, default=CONNECTION_STATUS_CONNECTED,
                                             verbose_name='Status')
 
+    csv_headers = ['device_a', 'interface_a', 'device_b', 'interface_b', 'connection_status']
+
     def clean(self):
-        if self.interface_a == self.interface_b:
-            raise ValidationError({
-                'interface_b': "Cannot connect an interface to itself."
-            })
+        try:
+            if self.interface_a == self.interface_b:
+                raise ValidationError({
+                    'interface_b': "Cannot connect an interface to itself."
+                })
+        except ObjectDoesNotExist:
+            pass
 
     # Used for connections export
     def to_csv(self):
@@ -1381,7 +1285,7 @@ class DeviceBay(models.Model):
         unique_together = ['device', 'name']
 
     def __str__(self):
-        return u'{} - {}'.format(self.device.name, self.name)
+        return '{} - {}'.format(self.device.name, self.name)
 
     def clean(self):
 
@@ -1397,23 +1301,29 @@ class DeviceBay(models.Model):
 
 
 #
-# Modules
+# Inventory items
 #
 
 @python_2_unicode_compatible
-class Module(models.Model):
+class InventoryItem(models.Model):
     """
-    A Module represents a piece of hardware within a Device, such as a line card or power supply. Modules are used only
-    for inventory purposes.
+    An InventoryItem represents a serialized piece of hardware within a Device, such as a line card or power supply.
+    InventoryItems are used only for inventory purposes.
     """
-    device = models.ForeignKey('Device', related_name='modules', on_delete=models.CASCADE)
-    parent = models.ForeignKey('self', related_name='submodules', blank=True, null=True, on_delete=models.CASCADE)
+    device = models.ForeignKey('Device', related_name='inventory_items', on_delete=models.CASCADE)
+    parent = models.ForeignKey('self', related_name='child_items', blank=True, null=True, on_delete=models.CASCADE)
     name = models.CharField(max_length=50, verbose_name='Name')
-    manufacturer = models.ForeignKey('Manufacturer', related_name='modules', blank=True, null=True,
-                                     on_delete=models.PROTECT)
+    manufacturer = models.ForeignKey(
+        'Manufacturer', models.PROTECT, related_name='inventory_items', blank=True, null=True
+    )
     part_id = models.CharField(max_length=50, verbose_name='Part ID', blank=True)
     serial = models.CharField(max_length=50, verbose_name='Serial number', blank=True)
+    asset_tag = NullableCharField(
+        max_length=50, blank=True, null=True, unique=True, verbose_name='Asset tag',
+        help_text='A unique tag used to identify this item'
+    )
     discovered = models.BooleanField(default=False, verbose_name='Discovered')
+    description = models.CharField(max_length=100, blank=True)
 
     class Meta:
         ordering = ['device__id', 'parent__id', 'name']

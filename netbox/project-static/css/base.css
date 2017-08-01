@@ -74,6 +74,13 @@ footer p {
     }
 }
 
+/* Hide the nav search bar on displays less than 1600px wide */
+@media (max-width: 1599px) {
+    #navbar_search {
+        display: none;
+    }
+}
+
 /* Forms */
 label {
     font-weight: normal;
@@ -91,6 +98,9 @@ tfoot td {
 }
 table.attr-table td:nth-child(1) {
     width: 25%;
+}
+.table-headings th {
+    background-color: #f5f5f5;
 }
 
 /* Paginator */
@@ -311,6 +321,41 @@ ul.rack li.occupied span {
 }
 li.occupied + li.available {
     border-top: 1px solid #474747;
+}
+
+/* Devices */
+table.component-list tr.ipaddress td {
+    background-color: #eeffff;
+    padding-bottom: 4px;
+    padding-top: 4px;
+}
+table.component-list tr.ipaddress:hover td {
+    background-color: #e6f7f7;
+}
+
+/* AJAX loader */
+.loading {
+    position: fixed;
+    display: none;
+    z-index: 999;
+    height: 2em;
+    width: 2em;
+    overflow: show;
+    margin: auto;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    right: 0;
+}
+.loading:before {
+    content: '';
+    display: block;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0,0,0,0.3);
 }
 
 /* Misc */

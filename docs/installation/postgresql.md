@@ -1,17 +1,21 @@
 NetBox requires a PostgreSQL database to store data. (Please note that MySQL is not supported, as NetBox leverages PostgreSQL's built-in [network address types](https://www.postgresql.org/docs/9.1/static/datatype-net-types.html).)
 
+!!! note
+    The installation instructions provided here have been tested to work on Ubuntu 16.04 and CentOS 6.9. The particular commands needed to install dependencies on other distributions may vary significantly. Unfortunately, this is outside the control of the NetBox maintainers. Please consult your distribution's documentation for assistance with any errors.
+
 # Installation
 
-**Debian/Ubuntu**
+**Ubuntu**
 
 ```no-highlight
-# apt-get install -y postgresql libpq-dev python-psycopg2
+# apt-get update
+# apt-get install -y postgresql libpq-dev
 ```
 
-**CentOS/RHEL**
+**CentOS**
 
 ```no-highlight
-# yum install -y postgresql postgresql-server postgresql-devel python-psycopg2
+# yum install -y postgresql postgresql-server postgresql-devel
 # postgresql-setup initdb
 ```
 

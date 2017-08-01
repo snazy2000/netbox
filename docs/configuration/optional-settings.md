@@ -38,6 +38,22 @@ BASE_PATH = 'netbox/'
 
 ---
 
+## CORS_ORIGIN_ALLOW_ALL
+
+Default: False
+
+If True, cross-origin resource sharing (CORS) requests will be accepted from all origins. If False, a whitelist will be used (see below).
+
+---
+
+## CORS_ORIGIN_WHITELIST
+
+## CORS_ORIGIN_REGEX_WHITELIST
+
+These settings specify a list of origins that are authorized to make cross-site API requests. Use `CORS_ORIGIN_WHITELIST` to define a list of exact hostnames, or `CORS_ORIGIN_REGEX_WHITELIST` to define a set of regular expressions. (These settings have no effect if `CORS_ORIGIN_ALLOW_ALL` is True.)
+
+---
+
 ## DEBUG
 
 Default: False
@@ -67,6 +83,34 @@ Enforcement of unique IP space can be toggled on a per-VRF basis. To enforce uni
 
 ---
 
+## LOGGING
+
+By default, all messages of INFO severity or higher will be logged to the console. Additionally, if `DEBUG` is False and email access has been configured, ERROR and CRITICAL messages will be emailed to the users defined in `ADMINS`.
+
+The Django framework on which NetBox runs allows for the customization of logging, e.g. to write logs to file. Please consult the [Django logging documentation](https://docs.djangoproject.com/en/1.11/topics/logging/) for more information on configuring this setting. Below is an example which will write all INFO and higher messages to a file:
+
+```
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'file': {
+            'level': 'INFO',
+            'class': 'logging.FileHandler',
+            'filename': '/var/log/netbox.log',
+        },
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['file'],
+            'level': 'INFO',
+        },
+    },
+}
+```
+
+---
+
 ## LOGIN_REQUIRED
 
 Default: False
@@ -80,6 +124,14 @@ Setting this to True will permit only authenticated users to access any part of 
 Default: False
 
 Setting this to True will display a "maintenance mode" banner at the top of every page.
+
+---
+
+## MAX_PAGE_SIZE
+
+Default: 1000
+
+An API consumer can request an arbitrary number of objects by appending the "limit" parameter to the URL (e.g. `?limit=1000`). This setting defines the maximum limit. Setting it to `0` or `None` will allow an API consumer to request all objects by specifying `?limit=0`.
 
 ---
 
