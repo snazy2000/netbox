@@ -459,7 +459,7 @@ class BootstrapMixin(forms.BaseForm):
             if field.widget.__class__ not in exempt_widgets:
                 css = field.widget.attrs.get('class', '')
                 field.widget.attrs['class'] = ' '.join([css, 'form-control']).strip()
-            if field.required:
+            if field.required and not isinstance(field.widget, forms.FileInput):
                 field.widget.attrs['required'] = 'required'
             if 'placeholder' not in field.widget.attrs:
                 field.widget.attrs['placeholder'] = field.label
@@ -511,6 +511,15 @@ class ConfirmationForm(BootstrapMixin, ReturnURLForm):
     A generic confirmation form. The form is not valid unless the confirm field is checked.
     """
     confirm = forms.BooleanField(required=True, widget=forms.HiddenInput(), initial=True)
+
+
+class ComponentForm(BootstrapMixin, forms.Form):
+    """
+    Allow inclusion of the parent Device/VirtualMachine as context for limiting field choices.
+    """
+    def __init__(self, parent, *args, **kwargs):
+        self.parent = parent
+        super(ComponentForm, self).__init__(*args, **kwargs)
 
 
 class BulkEditForm(forms.Form):

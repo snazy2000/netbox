@@ -808,6 +808,13 @@ class Device(CreatedUpdatedModel, CustomFieldModel):
         'ipam.IPAddress', related_name='primary_ip6_for', on_delete=models.SET_NULL, blank=True, null=True,
         verbose_name='Primary IPv6'
     )
+    cluster = models.ForeignKey(
+        to='virtualization.Cluster',
+        on_delete=models.SET_NULL,
+        related_name='devices',
+        blank=True,
+        null=True
+    )
     comments = models.TextField(blank=True)
     custom_field_values = GenericRelation(CustomFieldValue, content_type_field='obj_type', object_id_field='obj_id')
     images = GenericRelation(ImageAttachment)
@@ -889,6 +896,18 @@ class Device(CreatedUpdatedModel, CustomFieldModel):
 
             except DeviceType.DoesNotExist:
                 pass
+
+        # Validate primary IPv4 address
+        if self.primary_ip4 and (self.primary_ip4.interface is None or self.primary_ip4.interface.device != self):
+            raise ValidationError({
+                'primary_ip4': "The specified IP address ({}) is not assigned to this device.".format(self.primary_ip4),
+            })
+
+        # Validate primary IPv6 address
+        if self.primary_ip6 and (self.primary_ip6.interface is None or self.primary_ip6.interface.device != self):
+            raise ValidationError({
+                'primary_ip6': "The specified IP address ({}) is not assigned to this device.".format(self.primary_ip6),
+            })
 
     def save(self, *args, **kwargs):
 
@@ -1156,6 +1175,11 @@ class Interface(models.Model):
         help_text="This interface is used only for out-of-band management"
     )
     description = models.CharField(max_length=100, blank=True)
+    ip_addresses = GenericRelation(
+        to='ipam.IPAddress',
+        content_type_field='interface_type',
+        object_id_field='interface_id'
+    )
 
     objects = InterfaceQuerySet.as_manager()
 

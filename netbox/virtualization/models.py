@@ -89,9 +89,6 @@ class Cluster(CreatedUpdatedModel, CustomFieldModel):
         blank=True,
         null=True
     )
-    devices = models.ManyToManyField(
-        to='dcim.Device'
-    )
     comments = models.TextField(
         blank=True
     )
@@ -159,6 +156,21 @@ class VirtualMachine(CreatedUpdatedModel, CustomFieldModel):
         null=True,
         verbose_name='Primary IPv6'
     )
+    vcpus = models.PositiveSmallIntegerField(
+        blank=True,
+        null=True,
+        verbose_name='vCPUs'
+    )
+    memory = models.PositiveIntegerField(
+        blank=True,
+        null=True,
+        verbose_name='Memory (MB)'
+    )
+    disk = models.PositiveIntegerField(
+        blank=True,
+        null=True,
+        verbose_name='Disk (GB)'
+    )
     comments = models.TextField(
         blank=True
     )
@@ -209,10 +221,16 @@ class VMInterface(models.Model):
         max_length=100,
         blank=True
     )
+    ip_addresses = GenericRelation(
+        to='ipam.IPAddress',
+        content_type_field='interface_type',
+        object_id_field='interface_id'
+    )
 
     class Meta:
         ordering = ['virtual_machine', 'name']
         unique_together = ['virtual_machine', 'name']
+        verbose_name = 'VM interface'
 
     def __str__(self):
         return self.name
