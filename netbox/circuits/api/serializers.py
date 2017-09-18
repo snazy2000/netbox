@@ -1,9 +1,12 @@
+from __future__ import unicode_literals
+
 from rest_framework import serializers
 
 from circuits.models import Provider, Circuit, CircuitTermination, CircuitType
 from dcim.api.serializers import NestedSiteSerializer, InterfaceSerializer
 from extras.api.customfields import CustomFieldModelSerializer
 from tenancy.api.serializers import NestedTenantSerializer
+from utilities.api import ValidatedModelSerializer
 
 
 #
@@ -28,18 +31,21 @@ class NestedProviderSerializer(serializers.ModelSerializer):
         fields = ['id', 'url', 'name', 'slug']
 
 
-class WritableProviderSerializer(serializers.ModelSerializer):
+class WritableProviderSerializer(CustomFieldModelSerializer):
 
     class Meta:
         model = Provider
-        fields = ['id', 'name', 'slug', 'asn', 'account', 'portal_url', 'noc_contact', 'admin_contact', 'comments']
+        fields = [
+            'id', 'name', 'slug', 'asn', 'account', 'portal_url', 'noc_contact', 'admin_contact', 'comments',
+            'custom_fields',
+        ]
 
 
 #
 # Circuit types
 #
 
-class CircuitTypeSerializer(serializers.ModelSerializer):
+class CircuitTypeSerializer(ValidatedModelSerializer):
 
     class Meta:
         model = CircuitType
@@ -79,11 +85,14 @@ class NestedCircuitSerializer(serializers.ModelSerializer):
         fields = ['id', 'url', 'cid']
 
 
-class WritableCircuitSerializer(serializers.ModelSerializer):
+class WritableCircuitSerializer(CustomFieldModelSerializer):
 
     class Meta:
         model = Circuit
-        fields = ['id', 'cid', 'provider', 'type', 'tenant', 'install_date', 'commit_rate', 'description', 'comments']
+        fields = [
+            'id', 'cid', 'provider', 'type', 'tenant', 'install_date', 'commit_rate', 'description', 'comments',
+            'custom_fields',
+        ]
 
 
 #
@@ -102,7 +111,7 @@ class CircuitTerminationSerializer(serializers.ModelSerializer):
         ]
 
 
-class WritableCircuitTerminationSerializer(serializers.ModelSerializer):
+class WritableCircuitTerminationSerializer(ValidatedModelSerializer):
 
     class Meta:
         model = CircuitTermination

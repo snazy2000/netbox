@@ -1,3 +1,5 @@
+from __future__ import unicode_literals
+
 from rest_framework import routers
 
 from . import views
@@ -22,4 +24,5 @@ router.register(r'circuit-types', views.CircuitTypeViewSet)
 router.register(r'circuits', views.CircuitViewSet)
 router.register(r'circuit-terminations', views.CircuitTerminationViewSet)
 
+app_name = 'circuits-api'
 urlpatterns = router.urls

@@ -77,10 +77,12 @@ $(document).ready(function() {
 
         // Wipe out any existing options within the child field and create a default option
         child_field.empty();
-        child_field.append($("<option></option>").attr("value", "").text("---------"));
+        if (!child_field.attr('multiple')) {
+            child_field.append($("<option></option>").attr("value", "").text("---------"));
+        }
 
         if ($(this).val() || $(this).attr('nullable') == 'true') {
-            var api_url = child_field.attr('api-url');
+            var api_url = child_field.attr('api-url') + '&limit=1000';
             var disabled_indicator = child_field.attr('disabled-indicator');
             var initial_value = child_field.attr('initial');
             var display_field = child_field.attr('display-field') || 'name';
@@ -88,20 +90,21 @@ $(document).ready(function() {
             // Determine the filter fields needed to make an API call
             var filter_regex = /\{\{([a-z_]+)\}\}/g;
             var match;
+            var rendered_url = api_url;
             while (match = filter_regex.exec(api_url)) {
                 var filter_field = $('#id_' + match[1]);
                 if (filter_field.val()) {
-                    api_url = api_url.replace(match[0], filter_field.val());
-                } else if ($(this).attr('nullable') == 'true') {
-                    api_url = api_url.replace(match[0], '0');
+                    rendered_url = rendered_url.replace(match[0], filter_field.val());
+                } else if (filter_field.attr('nullable') == 'true') {
+                    rendered_url = rendered_url.replace(match[0], '0');
                 }
             }
 
             // If all URL variables have been replaced, make the API call
-            if (api_url.search('{{') < 0) {
-                console.log(child_name + ": Fetching " + api_url);
+            if (rendered_url.search('{{') < 0) {
+                console.log(child_name + ": Fetching " + rendered_url);
                 $.ajax({
-                    url: api_url,
+                    url: rendered_url,
                     dataType: 'json',
                     success: function(response, status) {
                         $.each(response.results, function(index, choice) {

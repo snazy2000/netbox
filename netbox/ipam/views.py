@@ -1,21 +1,23 @@
+from __future__ import unicode_literals
+
 from django_tables2 import RequestConfig
 import netaddr
 
-from django.contrib.auth.decorators import permission_required
+from django.conf import settings
 from django.contrib.auth.mixins import PermissionRequiredMixin
-from django.contrib import messages
-from django.core.urlresolvers import reverse
 from django.db.models import Count, Q
-from django.shortcuts import get_object_or_404, redirect, render
+from django.shortcuts import get_object_or_404, render
+from django.urls import reverse
+from django.views.generic import View
 
-from dcim.models import Device
-from utilities.forms import ConfirmationForm
+from dcim.models import Device, Interface
 from utilities.paginator import EnhancedPaginator
 from utilities.views import (
-    BulkAddView, BulkDeleteView, BulkEditView, BulkImportView, ObjectDeleteView, ObjectEditView, ObjectListView,
+    BulkCreateView, BulkDeleteView, BulkEditView, BulkImportView, ObjectDeleteView, ObjectEditView, ObjectListView,
 )
-
+from virtualization.models import VirtualMachine
 from . import filters, forms, tables
+from .constants import IPADDRESS_ROLE_ANYCAST
 from .models import (
     Aggregate, IPAddress, PREFIX_STATUS_ACTIVE, PREFIX_STATUS_DEPRECATED, PREFIX_STATUS_RESERVED, Prefix, RIR, Role,
     Service, VLAN, VLANGroup, VRF,
@@ -98,26 +100,32 @@ class VRFListView(ObjectListView):
     template_name = 'ipam/vrf_list.html'
 
 
-def vrf(request, pk):
+class VRFView(View):
 
-    vrf = get_object_or_404(VRF.objects.all(), pk=pk)
-    prefix_table = tables.PrefixBriefTable(
-        list(Prefix.objects.filter(vrf=vrf).select_related('site', 'role'))
-    )
-    prefix_table.exclude = ('vrf',)
+    def get(self, request, pk):
 
-    return render(request, 'ipam/vrf.html', {
-        'vrf': vrf,
-        'prefix_table': prefix_table,
-    })
+        vrf = get_object_or_404(VRF.objects.all(), pk=pk)
+        prefix_table = tables.PrefixTable(
+            list(Prefix.objects.filter(vrf=vrf).select_related('site', 'role')), orderable=False
+        )
+        prefix_table.exclude = ('vrf',)
+
+        return render(request, 'ipam/vrf.html', {
+            'vrf': vrf,
+            'prefix_table': prefix_table,
+        })
 
 
-class VRFEditView(PermissionRequiredMixin, ObjectEditView):
-    permission_required = 'ipam.change_vrf'
+class VRFCreateView(PermissionRequiredMixin, ObjectEditView):
+    permission_required = 'ipam.add_vrf'
     model = VRF
-    form_class = forms.VRFForm
+    model_form = forms.VRFForm
     template_name = 'ipam/vrf_edit.html'
     default_return_url = 'ipam:vrf_list'
+
+
+class VRFEditView(VRFCreateView):
+    permission_required = 'ipam.change_vrf'
 
 
 class VRFDeleteView(PermissionRequiredMixin, ObjectDeleteView):
@@ -128,25 +136,27 @@ class VRFDeleteView(PermissionRequiredMixin, ObjectDeleteView):
 
 class VRFBulkImportView(PermissionRequiredMixin, BulkImportView):
     permission_required = 'ipam.add_vrf'
-    form = forms.VRFImportForm
+    model_form = forms.VRFCSVForm
     table = tables.VRFTable
-    template_name = 'ipam/vrf_import.html'
     default_return_url = 'ipam:vrf_list'
 
 
 class VRFBulkEditView(PermissionRequiredMixin, BulkEditView):
     permission_required = 'ipam.change_vrf'
     cls = VRF
+    queryset = VRF.objects.select_related('tenant')
     filter = filters.VRFFilter
+    table = tables.VRFTable
     form = forms.VRFBulkEditForm
-    template_name = 'ipam/vrf_bulk_edit.html'
     default_return_url = 'ipam:vrf_list'
 
 
 class VRFBulkDeleteView(PermissionRequiredMixin, BulkDeleteView):
     permission_required = 'ipam.delete_vrf'
     cls = VRF
+    queryset = VRF.objects.select_related('tenant')
     filter = filters.VRFFilter
+    table = tables.VRFTable
     default_return_url = 'ipam:vrf_list'
 
 
@@ -158,7 +168,7 @@ class RIRListView(ObjectListView):
     queryset = RIR.objects.annotate(aggregate_count=Count('aggregates'))
     filter = filters.RIRFilter
     filter_form = forms.RIRFilterForm
-    table = tables.RIRTable
+    table = tables.RIRDetailTable
     template_name = 'ipam/rir_list.html'
 
     def alter_queryset(self, request):
@@ -238,19 +248,25 @@ class RIRListView(ObjectListView):
         }
 
 
-class RIREditView(PermissionRequiredMixin, ObjectEditView):
-    permission_required = 'ipam.change_rir'
+class RIRCreateView(PermissionRequiredMixin, ObjectEditView):
+    permission_required = 'ipam.add_rir'
     model = RIR
-    form_class = forms.RIRForm
+    model_form = forms.RIRForm
 
-    def get_return_url(self, obj):
+    def get_return_url(self, request, obj):
         return reverse('ipam:rir_list')
+
+
+class RIREditView(RIRCreateView):
+    permission_required = 'ipam.change_rir'
 
 
 class RIRBulkDeleteView(PermissionRequiredMixin, BulkDeleteView):
     permission_required = 'ipam.delete_rir'
     cls = RIR
+    queryset = RIR.objects.annotate(aggregate_count=Count('aggregates'))
     filter = filters.RIRFilter
+    table = tables.RIRTable
     default_return_url = 'ipam:rir_list'
 
 
@@ -264,7 +280,7 @@ class AggregateListView(ObjectListView):
     })
     filter = filters.AggregateFilter
     filter_form = forms.AggregateFilterForm
-    table = tables.AggregateTable
+    table = tables.AggregateDetailTable
     template_name = 'ipam/aggregate_list.html'
 
     def extra_context(self):
@@ -283,40 +299,56 @@ class AggregateListView(ObjectListView):
         }
 
 
-def aggregate(request, pk):
+class AggregateView(View):
 
-    aggregate = get_object_or_404(Aggregate, pk=pk)
+    def get(self, request, pk):
 
-    # Find all child prefixes contained by this aggregate
-    child_prefixes = Prefix.objects.filter(prefix__net_contained_or_equal=str(aggregate.prefix))\
-        .select_related('site', 'role').annotate_depth(limit=0)
-    child_prefixes = add_available_prefixes(aggregate.prefix, child_prefixes)
+        aggregate = get_object_or_404(Aggregate, pk=pk)
 
-    prefix_table = tables.PrefixTable(child_prefixes)
-    if request.user.has_perm('ipam.change_prefix') or request.user.has_perm('ipam.delete_prefix'):
-        prefix_table.base_columns['pk'].visible = True
-    RequestConfig(request, paginate={'klass': EnhancedPaginator}).configure(prefix_table)
+        # Find all child prefixes contained by this aggregate
+        child_prefixes = Prefix.objects.filter(
+            prefix__net_contained_or_equal=str(aggregate.prefix)
+        ).select_related(
+            'site', 'role'
+        ).annotate_depth(
+            limit=0
+        )
+        child_prefixes = add_available_prefixes(aggregate.prefix, child_prefixes)
 
-    # Compile permissions list for rendering the object table
-    permissions = {
-        'add': request.user.has_perm('ipam.add_prefix'),
-        'change': request.user.has_perm('ipam.change_prefix'),
-        'delete': request.user.has_perm('ipam.delete_prefix'),
-    }
+        prefix_table = tables.PrefixTable(child_prefixes)
+        if request.user.has_perm('ipam.change_prefix') or request.user.has_perm('ipam.delete_prefix'):
+            prefix_table.base_columns['pk'].visible = True
 
-    return render(request, 'ipam/aggregate.html', {
-        'aggregate': aggregate,
-        'prefix_table': prefix_table,
-        'permissions': permissions,
-    })
+        paginate = {
+            'klass': EnhancedPaginator,
+            'per_page': request.GET.get('per_page', settings.PAGINATE_COUNT)
+        }
+        RequestConfig(request, paginate).configure(prefix_table)
+
+        # Compile permissions list for rendering the object table
+        permissions = {
+            'add': request.user.has_perm('ipam.add_prefix'),
+            'change': request.user.has_perm('ipam.change_prefix'),
+            'delete': request.user.has_perm('ipam.delete_prefix'),
+        }
+
+        return render(request, 'ipam/aggregate.html', {
+            'aggregate': aggregate,
+            'prefix_table': prefix_table,
+            'permissions': permissions,
+        })
 
 
-class AggregateEditView(PermissionRequiredMixin, ObjectEditView):
-    permission_required = 'ipam.change_aggregate'
+class AggregateCreateView(PermissionRequiredMixin, ObjectEditView):
+    permission_required = 'ipam.add_aggregate'
     model = Aggregate
-    form_class = forms.AggregateForm
+    model_form = forms.AggregateForm
     template_name = 'ipam/aggregate_edit.html'
     default_return_url = 'ipam:aggregate_list'
+
+
+class AggregateEditView(AggregateCreateView):
+    permission_required = 'ipam.change_aggregate'
 
 
 class AggregateDeleteView(PermissionRequiredMixin, ObjectDeleteView):
@@ -327,25 +359,27 @@ class AggregateDeleteView(PermissionRequiredMixin, ObjectDeleteView):
 
 class AggregateBulkImportView(PermissionRequiredMixin, BulkImportView):
     permission_required = 'ipam.add_aggregate'
-    form = forms.AggregateImportForm
+    model_form = forms.AggregateCSVForm
     table = tables.AggregateTable
-    template_name = 'ipam/aggregate_import.html'
     default_return_url = 'ipam:aggregate_list'
 
 
 class AggregateBulkEditView(PermissionRequiredMixin, BulkEditView):
     permission_required = 'ipam.change_aggregate'
     cls = Aggregate
+    queryset = Aggregate.objects.select_related('rir')
     filter = filters.AggregateFilter
+    table = tables.AggregateTable
     form = forms.AggregateBulkEditForm
-    template_name = 'ipam/aggregate_bulk_edit.html'
     default_return_url = 'ipam:aggregate_list'
 
 
 class AggregateBulkDeleteView(PermissionRequiredMixin, BulkDeleteView):
     permission_required = 'ipam.delete_aggregate'
     cls = Aggregate
+    queryset = Aggregate.objects.select_related('rir')
     filter = filters.AggregateFilter
+    table = tables.AggregateTable
     default_return_url = 'ipam:aggregate_list'
 
 
@@ -359,18 +393,23 @@ class RoleListView(ObjectListView):
     template_name = 'ipam/role_list.html'
 
 
-class RoleEditView(PermissionRequiredMixin, ObjectEditView):
-    permission_required = 'ipam.change_role'
+class RoleCreateView(PermissionRequiredMixin, ObjectEditView):
+    permission_required = 'ipam.add_role'
     model = Role
-    form_class = forms.RoleForm
+    model_form = forms.RoleForm
 
-    def get_return_url(self, obj):
+    def get_return_url(self, request, obj):
         return reverse('ipam:role_list')
+
+
+class RoleEditView(RoleCreateView):
+    permission_required = 'ipam.change_role'
 
 
 class RoleBulkDeleteView(PermissionRequiredMixin, BulkDeleteView):
     permission_required = 'ipam.delete_role'
     cls = Role
+    table = tables.RoleTable
     default_return_url = 'ipam:role_list'
 
 
@@ -382,7 +421,7 @@ class PrefixListView(ObjectListView):
     queryset = Prefix.objects.select_related('site', 'vrf__tenant', 'tenant', 'vlan', 'role')
     filter = filters.PrefixFilter
     filter_form = forms.PrefixFilterForm
-    table = tables.PrefixTable
+    table = tables.PrefixDetailTable
     template_name = 'ipam/prefix_list.html'
 
     def alter_queryset(self, request):
@@ -391,70 +430,132 @@ class PrefixListView(ObjectListView):
         return self.queryset.annotate_depth(limit=limit)
 
 
-def prefix(request, pk):
+class PrefixView(View):
 
-    prefix = get_object_or_404(Prefix.objects.select_related(
-        'vrf', 'site__region', 'tenant__group', 'vlan__group', 'role'
-    ), pk=pk)
+    def get(self, request, pk):
 
-    try:
-        aggregate = Aggregate.objects.get(prefix__net_contains_or_equals=str(prefix.prefix))
-    except Aggregate.DoesNotExist:
-        aggregate = None
+        prefix = get_object_or_404(Prefix.objects.select_related(
+            'vrf', 'site__region', 'tenant__group', 'vlan__group', 'role'
+        ), pk=pk)
 
-    # Count child IP addresses
-    ipaddress_count = IPAddress.objects.filter(vrf=prefix.vrf, address__net_host_contained=str(prefix.prefix))\
-        .count()
+        try:
+            aggregate = Aggregate.objects.get(prefix__net_contains_or_equals=str(prefix.prefix))
+        except Aggregate.DoesNotExist:
+            aggregate = None
 
-    # Parent prefixes table
-    parent_prefixes = Prefix.objects.filter(Q(vrf=prefix.vrf) | Q(vrf__isnull=True))\
-        .filter(prefix__net_contains=str(prefix.prefix))\
-        .select_related('site', 'role').annotate_depth()
-    parent_prefix_table = tables.PrefixBriefTable(parent_prefixes)
-    parent_prefix_table.exclude = ('vrf',)
+        # Count child IP addresses
+        ipaddress_count = IPAddress.objects.filter(
+            vrf=prefix.vrf, address__net_host_contained=str(prefix.prefix)
+        ).count()
 
-    # Duplicate prefixes table
-    duplicate_prefixes = Prefix.objects.filter(vrf=prefix.vrf, prefix=str(prefix.prefix)).exclude(pk=prefix.pk)\
-        .select_related('site', 'role')
-    duplicate_prefix_table = tables.PrefixBriefTable(list(duplicate_prefixes))
-    duplicate_prefix_table.exclude = ('vrf',)
+        # Parent prefixes table
+        parent_prefixes = Prefix.objects.filter(
+            Q(vrf=prefix.vrf) | Q(vrf__isnull=True)
+        ).filter(
+            prefix__net_contains=str(prefix.prefix)
+        ).select_related(
+            'site', 'role'
+        ).annotate_depth()
+        parent_prefix_table = tables.PrefixTable(list(parent_prefixes), orderable=False)
+        parent_prefix_table.exclude = ('vrf',)
 
-    # Child prefixes table
-    child_prefixes = Prefix.objects.filter(vrf=prefix.vrf, prefix__net_contained=str(prefix.prefix))\
-        .select_related('site', 'role').annotate_depth(limit=0)
-    if child_prefixes:
-        child_prefixes = add_available_prefixes(prefix.prefix, child_prefixes)
-    child_prefix_table = tables.PrefixTable(child_prefixes)
-    if request.user.has_perm('ipam.change_prefix') or request.user.has_perm('ipam.delete_prefix'):
-        child_prefix_table.base_columns['pk'].visible = True
-    RequestConfig(request, paginate={'klass': EnhancedPaginator}).configure(child_prefix_table)
+        # Duplicate prefixes table
+        duplicate_prefixes = Prefix.objects.filter(
+            vrf=prefix.vrf, prefix=str(prefix.prefix)
+        ).exclude(
+            pk=prefix.pk
+        ).select_related(
+            'site', 'role'
+        )
+        duplicate_prefix_table = tables.PrefixTable(list(duplicate_prefixes), orderable=False)
+        duplicate_prefix_table.exclude = ('vrf',)
 
-    # Compile permissions list for rendering the object table
-    permissions = {
-        'add': request.user.has_perm('ipam.add_prefix'),
-        'change': request.user.has_perm('ipam.change_prefix'),
-        'delete': request.user.has_perm('ipam.delete_prefix'),
-    }
+        # Child prefixes table
+        child_prefixes = Prefix.objects.filter(
+            vrf=prefix.vrf, prefix__net_contained=str(prefix.prefix)
+        ).select_related(
+            'site', 'role'
+        ).annotate_depth(limit=0)
+        if child_prefixes:
+            child_prefixes = add_available_prefixes(prefix.prefix, child_prefixes)
+        child_prefix_table = tables.PrefixTable(child_prefixes)
+        if request.user.has_perm('ipam.change_prefix') or request.user.has_perm('ipam.delete_prefix'):
+            child_prefix_table.base_columns['pk'].visible = True
 
-    return render(request, 'ipam/prefix.html', {
-        'prefix': prefix,
-        'aggregate': aggregate,
-        'ipaddress_count': ipaddress_count,
-        'parent_prefix_table': parent_prefix_table,
-        'child_prefix_table': child_prefix_table,
-        'duplicate_prefix_table': duplicate_prefix_table,
-        'permissions': permissions,
-        'return_url': prefix.get_absolute_url(),
-    })
+        paginate = {
+            'klass': EnhancedPaginator,
+            'per_page': request.GET.get('per_page', settings.PAGINATE_COUNT)
+        }
+        RequestConfig(request, paginate).configure(child_prefix_table)
+
+        # Compile permissions list for rendering the object table
+        permissions = {
+            'add': request.user.has_perm('ipam.add_prefix'),
+            'change': request.user.has_perm('ipam.change_prefix'),
+            'delete': request.user.has_perm('ipam.delete_prefix'),
+        }
+
+        return render(request, 'ipam/prefix.html', {
+            'prefix': prefix,
+            'aggregate': aggregate,
+            'ipaddress_count': ipaddress_count,
+            'parent_prefix_table': parent_prefix_table,
+            'child_prefix_table': child_prefix_table,
+            'duplicate_prefix_table': duplicate_prefix_table,
+            'permissions': permissions,
+            'return_url': prefix.get_absolute_url(),
+        })
 
 
-class PrefixEditView(PermissionRequiredMixin, ObjectEditView):
-    permission_required = 'ipam.change_prefix'
+class PrefixIPAddressesView(View):
+
+    def get(self, request, pk):
+
+        prefix = get_object_or_404(Prefix.objects.all(), pk=pk)
+
+        # Find all IPAddresses belonging to this Prefix
+        ipaddresses = IPAddress.objects.filter(
+            vrf=prefix.vrf, address__net_host_contained=str(prefix.prefix)
+        ).select_related(
+            'vrf', 'interface__device', 'primary_ip4_for', 'primary_ip6_for'
+        )
+        ipaddresses = add_available_ipaddresses(prefix.prefix, ipaddresses, prefix.is_pool)
+
+        ip_table = tables.IPAddressTable(ipaddresses)
+        if request.user.has_perm('ipam.change_ipaddress') or request.user.has_perm('ipam.delete_ipaddress'):
+            ip_table.base_columns['pk'].visible = True
+
+        paginate = {
+            'klass': EnhancedPaginator,
+            'per_page': request.GET.get('per_page', settings.PAGINATE_COUNT)
+        }
+        RequestConfig(request, paginate).configure(ip_table)
+
+        # Compile permissions list for rendering the object table
+        permissions = {
+            'add': request.user.has_perm('ipam.add_ipaddress'),
+            'change': request.user.has_perm('ipam.change_ipaddress'),
+            'delete': request.user.has_perm('ipam.delete_ipaddress'),
+        }
+
+        return render(request, 'ipam/prefix_ipaddresses.html', {
+            'prefix': prefix,
+            'ip_table': ip_table,
+            'permissions': permissions,
+            'bulk_querystring': 'vrf_id={}&parent={}'.format(prefix.vrf or '0', prefix.prefix),
+        })
+
+
+class PrefixCreateView(PermissionRequiredMixin, ObjectEditView):
+    permission_required = 'ipam.add_prefix'
     model = Prefix
-    form_class = forms.PrefixForm
+    model_form = forms.PrefixForm
     template_name = 'ipam/prefix_edit.html'
-    fields_initial = ['vrf', 'tenant', 'site', 'prefix', 'vlan']
     default_return_url = 'ipam:prefix_list'
+
+
+class PrefixEditView(PrefixCreateView):
+    permission_required = 'ipam.change_prefix'
 
 
 class PrefixDeleteView(PermissionRequiredMixin, ObjectDeleteView):
@@ -466,54 +567,28 @@ class PrefixDeleteView(PermissionRequiredMixin, ObjectDeleteView):
 
 class PrefixBulkImportView(PermissionRequiredMixin, BulkImportView):
     permission_required = 'ipam.add_prefix'
-    form = forms.PrefixImportForm
+    model_form = forms.PrefixCSVForm
     table = tables.PrefixTable
-    template_name = 'ipam/prefix_import.html'
     default_return_url = 'ipam:prefix_list'
 
 
 class PrefixBulkEditView(PermissionRequiredMixin, BulkEditView):
     permission_required = 'ipam.change_prefix'
     cls = Prefix
+    queryset = Prefix.objects.select_related('site', 'vrf__tenant', 'tenant', 'vlan', 'role')
     filter = filters.PrefixFilter
+    table = tables.PrefixTable
     form = forms.PrefixBulkEditForm
-    template_name = 'ipam/prefix_bulk_edit.html'
     default_return_url = 'ipam:prefix_list'
 
 
 class PrefixBulkDeleteView(PermissionRequiredMixin, BulkDeleteView):
     permission_required = 'ipam.delete_prefix'
     cls = Prefix
+    queryset = Prefix.objects.select_related('site', 'vrf__tenant', 'tenant', 'vlan', 'role')
     filter = filters.PrefixFilter
+    table = tables.PrefixTable
     default_return_url = 'ipam:prefix_list'
-
-
-def prefix_ipaddresses(request, pk):
-
-    prefix = get_object_or_404(Prefix.objects.all(), pk=pk)
-
-    # Find all IPAddresses belonging to this Prefix
-    ipaddresses = IPAddress.objects.filter(vrf=prefix.vrf, address__net_host_contained=str(prefix.prefix))\
-        .select_related('vrf', 'interface__device', 'primary_ip4_for', 'primary_ip6_for')
-    ipaddresses = add_available_ipaddresses(prefix.prefix, ipaddresses, prefix.is_pool)
-
-    ip_table = tables.IPAddressTable(ipaddresses)
-    if request.user.has_perm('ipam.change_ipaddress') or request.user.has_perm('ipam.delete_ipaddress'):
-        ip_table.base_columns['pk'].visible = True
-    RequestConfig(request, paginate={'klass': EnhancedPaginator}).configure(ip_table)
-
-    # Compile permissions list for rendering the object table
-    permissions = {
-        'add': request.user.has_perm('ipam.add_ipaddress'),
-        'change': request.user.has_perm('ipam.change_ipaddress'),
-        'delete': request.user.has_perm('ipam.delete_ipaddress'),
-    }
-
-    return render(request, 'ipam/prefix_ipaddresses.html', {
-        'prefix': prefix,
-        'ip_table': ip_table,
-        'permissions': permissions,
-    })
 
 
 #
@@ -521,117 +596,86 @@ def prefix_ipaddresses(request, pk):
 #
 
 class IPAddressListView(ObjectListView):
-    queryset = IPAddress.objects.select_related('vrf__tenant', 'tenant', 'interface__device')
+    queryset = IPAddress.objects.select_related(
+        'vrf__tenant', 'tenant', 'nat_inside'
+    ).prefetch_related(
+        'interface__device', 'interface__virtual_machine'
+    )
     filter = filters.IPAddressFilter
     filter_form = forms.IPAddressFilterForm
-    table = tables.IPAddressTable
+    table = tables.IPAddressDetailTable
     template_name = 'ipam/ipaddress_list.html'
 
 
-def ipaddress(request, pk):
+class IPAddressView(View):
 
-    ipaddress = get_object_or_404(IPAddress.objects.select_related('interface__device'), pk=pk)
+    def get(self, request, pk):
 
-    # Parent prefixes table
-    parent_prefixes = Prefix.objects.filter(vrf=ipaddress.vrf, prefix__net_contains=str(ipaddress.address.ip))\
-        .select_related('site', 'role')
-    parent_prefixes_table = tables.PrefixBriefTable(list(parent_prefixes))
-    parent_prefixes_table.exclude = ('vrf',)
+        ipaddress = get_object_or_404(IPAddress.objects.select_related('vrf__tenant', 'tenant'), pk=pk)
 
-    # Duplicate IPs table
-    duplicate_ips = IPAddress.objects.filter(vrf=ipaddress.vrf, address=str(ipaddress.address))\
-        .exclude(pk=ipaddress.pk).select_related('interface__device', 'nat_inside')
-    duplicate_ips_table = tables.IPAddressBriefTable(list(duplicate_ips))
+        # Parent prefixes table
+        parent_prefixes = Prefix.objects.filter(
+            vrf=ipaddress.vrf, prefix__net_contains=str(ipaddress.address.ip)
+        ).select_related(
+            'site', 'role'
+        )
+        parent_prefixes_table = tables.PrefixTable(list(parent_prefixes), orderable=False)
+        parent_prefixes_table.exclude = ('vrf',)
 
-    # Related IP table
-    related_ips = IPAddress.objects.select_related('interface__device').exclude(address=str(ipaddress.address))\
-        .filter(vrf=ipaddress.vrf, address__net_contained_or_equal=str(ipaddress.address))
-    related_ips_table = tables.IPAddressBriefTable(list(related_ips))
+        # Duplicate IPs table
+        duplicate_ips = IPAddress.objects.filter(
+            vrf=ipaddress.vrf, address=str(ipaddress.address)
+        ).exclude(
+            pk=ipaddress.pk
+        ).select_related(
+            'nat_inside'
+        ).prefetch_related(
+            'interface__device'
+        )
+        # Exclude anycast IPs if this IP is anycast
+        if ipaddress.role == IPADDRESS_ROLE_ANYCAST:
+            duplicate_ips = duplicate_ips.exclude(role=IPADDRESS_ROLE_ANYCAST)
+        duplicate_ips_table = tables.IPAddressTable(list(duplicate_ips), orderable=False)
 
-    return render(request, 'ipam/ipaddress.html', {
-        'ipaddress': ipaddress,
-        'parent_prefixes_table': parent_prefixes_table,
-        'duplicate_ips_table': duplicate_ips_table,
-        'related_ips_table': related_ips_table,
-    })
+        # Related IP table
+        related_ips = IPAddress.objects.prefetch_related(
+            'interface__device'
+        ).exclude(
+            address=str(ipaddress.address)
+        ).filter(
+            vrf=ipaddress.vrf, address__net_contained_or_equal=str(ipaddress.address)
+        )
+        related_ips_table = tables.IPAddressTable(list(related_ips), orderable=False)
 
-
-@permission_required(['dcim.change_device', 'ipam.change_ipaddress'])
-def ipaddress_assign(request, pk):
-
-    ipaddress = get_object_or_404(IPAddress, pk=pk)
-
-    if request.method == 'POST':
-        form = forms.IPAddressAssignForm(request.POST)
-        if form.is_valid():
-
-            interface = form.cleaned_data['interface']
-            ipaddress.interface = interface
-            ipaddress.save()
-            messages.success(request, u"Assigned IP address {} to interface {}.".format(ipaddress, ipaddress.interface))
-
-            if form.cleaned_data['set_as_primary']:
-                device = interface.device
-                if ipaddress.family == 4:
-                    device.primary_ip4 = ipaddress
-                elif ipaddress.family == 6:
-                    device.primary_ip6 = ipaddress
-                device.save()
-
-            return redirect('ipam:ipaddress', pk=ipaddress.pk)
-        else:
-            assert False, form.errors
-
-    else:
-        form = forms.IPAddressAssignForm()
-
-    return render(request, 'ipam/ipaddress_assign.html', {
-        'ipaddress': ipaddress,
-        'form': form,
-        'return_url': reverse('ipam:ipaddress', kwargs={'pk': ipaddress.pk}),
-    })
+        return render(request, 'ipam/ipaddress.html', {
+            'ipaddress': ipaddress,
+            'parent_prefixes_table': parent_prefixes_table,
+            'duplicate_ips_table': duplicate_ips_table,
+            'related_ips_table': related_ips_table,
+        })
 
 
-@permission_required(['dcim.change_device', 'ipam.change_ipaddress'])
-def ipaddress_remove(request, pk):
-
-    ipaddress = get_object_or_404(IPAddress, pk=pk)
-
-    if request.method == 'POST':
-        form = ConfirmationForm(request.POST)
-        if form.is_valid():
-
-            device = ipaddress.interface.device
-            ipaddress.interface = None
-            ipaddress.save()
-            messages.success(request, u"Removed IP address {} from {}.".format(ipaddress, device))
-
-            if device.primary_ip4 == ipaddress.pk:
-                device.primary_ip4 = None
-                device.save()
-            elif device.primary_ip6 == ipaddress.pk:
-                device.primary_ip6 = None
-                device.save()
-
-            return redirect('ipam:ipaddress', pk=ipaddress.pk)
-
-    else:
-        form = ConfirmationForm()
-
-    return render(request, 'ipam/ipaddress_unassign.html', {
-        'ipaddress': ipaddress,
-        'form': form,
-        'return_url': reverse('ipam:ipaddress', kwargs={'pk': ipaddress.pk}),
-    })
-
-
-class IPAddressEditView(PermissionRequiredMixin, ObjectEditView):
-    permission_required = 'ipam.change_ipaddress'
+class IPAddressCreateView(PermissionRequiredMixin, ObjectEditView):
+    permission_required = 'ipam.add_ipaddress'
     model = IPAddress
-    form_class = forms.IPAddressForm
-    fields_initial = ['address', 'vrf']
+    model_form = forms.IPAddressForm
     template_name = 'ipam/ipaddress_edit.html'
     default_return_url = 'ipam:ipaddress_list'
+
+    def alter_obj(self, obj, request, url_args, url_kwargs):
+
+        interface_id = request.GET.get('interface')
+        if interface_id:
+            try:
+                obj.interface = Interface.objects.get(pk=interface_id)
+            except (ValueError, Interface.DoesNotExist):
+                pass
+
+        return obj
+
+
+class IPAddressEditView(IPAddressCreateView):
+    permission_required = 'ipam.change_ipaddress'
 
 
 class IPAddressDeleteView(PermissionRequiredMixin, ObjectDeleteView):
@@ -640,48 +684,38 @@ class IPAddressDeleteView(PermissionRequiredMixin, ObjectDeleteView):
     default_return_url = 'ipam:ipaddress_list'
 
 
-class IPAddressBulkAddView(PermissionRequiredMixin, BulkAddView):
+class IPAddressBulkCreateView(PermissionRequiredMixin, BulkCreateView):
     permission_required = 'ipam.add_ipaddress'
-    form = forms.IPAddressBulkAddForm
-    model = IPAddress
+    form = forms.IPAddressBulkCreateForm
+    model_form = forms.IPAddressBulkAddForm
+    pattern_target = 'address'
     template_name = 'ipam/ipaddress_bulk_add.html'
     default_return_url = 'ipam:ipaddress_list'
 
 
 class IPAddressBulkImportView(PermissionRequiredMixin, BulkImportView):
     permission_required = 'ipam.add_ipaddress'
-    form = forms.IPAddressImportForm
+    model_form = forms.IPAddressCSVForm
     table = tables.IPAddressTable
-    template_name = 'ipam/ipaddress_import.html'
     default_return_url = 'ipam:ipaddress_list'
-
-    def save_obj(self, obj):
-        obj.save()
-
-        # Update primary IP for device if needed. The Device must be updated directly in the database; otherwise we risk
-        # overwriting a previous IP assignment from the same import (see #861).
-        try:
-            if obj.family == 4 and obj.primary_ip4_for:
-                Device.objects.filter(pk=obj.primary_ip4_for.pk).update(primary_ip4=obj)
-            elif obj.family == 6 and obj.primary_ip6_for:
-                Device.objects.filter(pk=obj.primary_ip6_for.pk).update(primary_ip6=obj)
-        except Device.DoesNotExist:
-            pass
 
 
 class IPAddressBulkEditView(PermissionRequiredMixin, BulkEditView):
     permission_required = 'ipam.change_ipaddress'
     cls = IPAddress
+    queryset = IPAddress.objects.select_related('vrf__tenant', 'tenant').prefetch_related('interface__device')
     filter = filters.IPAddressFilter
+    table = tables.IPAddressTable
     form = forms.IPAddressBulkEditForm
-    template_name = 'ipam/ipaddress_bulk_edit.html'
     default_return_url = 'ipam:ipaddress_list'
 
 
 class IPAddressBulkDeleteView(PermissionRequiredMixin, BulkDeleteView):
     permission_required = 'ipam.delete_ipaddress'
     cls = IPAddress
+    queryset = IPAddress.objects.select_related('vrf__tenant', 'tenant').prefetch_related('interface__device')
     filter = filters.IPAddressFilter
+    table = tables.IPAddressTable
     default_return_url = 'ipam:ipaddress_list'
 
 
@@ -697,19 +731,25 @@ class VLANGroupListView(ObjectListView):
     template_name = 'ipam/vlangroup_list.html'
 
 
-class VLANGroupEditView(PermissionRequiredMixin, ObjectEditView):
-    permission_required = 'ipam.change_vlangroup'
+class VLANGroupCreateView(PermissionRequiredMixin, ObjectEditView):
+    permission_required = 'ipam.add_vlangroup'
     model = VLANGroup
-    form_class = forms.VLANGroupForm
+    model_form = forms.VLANGroupForm
 
-    def get_return_url(self, obj):
+    def get_return_url(self, request, obj):
         return reverse('ipam:vlangroup_list')
+
+
+class VLANGroupEditView(VLANGroupCreateView):
+    permission_required = 'ipam.change_vlangroup'
 
 
 class VLANGroupBulkDeleteView(PermissionRequiredMixin, BulkDeleteView):
     permission_required = 'ipam.delete_vlangroup'
     cls = VLANGroup
+    queryset = VLANGroup.objects.select_related('site').annotate(vlan_count=Count('vlans'))
     filter = filters.VLANGroupFilter
+    table = tables.VLANGroupTable
     default_return_url = 'ipam:vlangroup_list'
 
 
@@ -721,29 +761,37 @@ class VLANListView(ObjectListView):
     queryset = VLAN.objects.select_related('site', 'group', 'tenant', 'role').prefetch_related('prefixes')
     filter = filters.VLANFilter
     filter_form = forms.VLANFilterForm
-    table = tables.VLANTable
+    table = tables.VLANDetailTable
     template_name = 'ipam/vlan_list.html'
 
 
-def vlan(request, pk):
+class VLANView(View):
 
-    vlan = get_object_or_404(VLAN.objects.select_related('site__region', 'tenant__group', 'role'), pk=pk)
-    prefixes = Prefix.objects.filter(vlan=vlan).select_related('vrf', 'site', 'role')
-    prefix_table = tables.PrefixBriefTable(list(prefixes))
-    prefix_table.exclude = ('vlan',)
+    def get(self, request, pk):
 
-    return render(request, 'ipam/vlan.html', {
-        'vlan': vlan,
-        'prefix_table': prefix_table,
-    })
+        vlan = get_object_or_404(VLAN.objects.select_related(
+            'site__region', 'tenant__group', 'role'
+        ), pk=pk)
+        prefixes = Prefix.objects.filter(vlan=vlan).select_related('vrf', 'site', 'role')
+        prefix_table = tables.PrefixTable(list(prefixes), orderable=False)
+        prefix_table.exclude = ('vlan',)
+
+        return render(request, 'ipam/vlan.html', {
+            'vlan': vlan,
+            'prefix_table': prefix_table,
+        })
 
 
-class VLANEditView(PermissionRequiredMixin, ObjectEditView):
-    permission_required = 'ipam.change_vlan'
+class VLANCreateView(PermissionRequiredMixin, ObjectEditView):
+    permission_required = 'ipam.add_vlan'
     model = VLAN
-    form_class = forms.VLANForm
+    model_form = forms.VLANForm
     template_name = 'ipam/vlan_edit.html'
     default_return_url = 'ipam:vlan_list'
+
+
+class VLANEditView(VLANCreateView):
+    permission_required = 'ipam.change_vlan'
 
 
 class VLANDeleteView(PermissionRequiredMixin, ObjectDeleteView):
@@ -754,25 +802,27 @@ class VLANDeleteView(PermissionRequiredMixin, ObjectDeleteView):
 
 class VLANBulkImportView(PermissionRequiredMixin, BulkImportView):
     permission_required = 'ipam.add_vlan'
-    form = forms.VLANImportForm
+    model_form = forms.VLANCSVForm
     table = tables.VLANTable
-    template_name = 'ipam/vlan_import.html'
     default_return_url = 'ipam:vlan_list'
 
 
 class VLANBulkEditView(PermissionRequiredMixin, BulkEditView):
     permission_required = 'ipam.change_vlan'
     cls = VLAN
+    queryset = VLAN.objects.select_related('site', 'group', 'tenant', 'role')
     filter = filters.VLANFilter
+    table = tables.VLANTable
     form = forms.VLANBulkEditForm
-    template_name = 'ipam/vlan_bulk_edit.html'
     default_return_url = 'ipam:vlan_list'
 
 
 class VLANBulkDeleteView(PermissionRequiredMixin, BulkDeleteView):
     permission_required = 'ipam.delete_vlan'
     cls = VLAN
+    queryset = VLAN.objects.select_related('site', 'group', 'tenant', 'role')
     filter = filters.VLANFilter
+    table = tables.VLANTable
     default_return_url = 'ipam:vlan_list'
 
 
@@ -780,19 +830,25 @@ class VLANBulkDeleteView(PermissionRequiredMixin, BulkDeleteView):
 # Services
 #
 
-class ServiceEditView(PermissionRequiredMixin, ObjectEditView):
-    permission_required = 'ipam.change_service'
+class ServiceCreateView(PermissionRequiredMixin, ObjectEditView):
+    permission_required = 'ipam.add_service'
     model = Service
-    form_class = forms.ServiceForm
+    model_form = forms.ServiceForm
     template_name = 'ipam/service_edit.html'
 
     def alter_obj(self, obj, request, url_args, url_kwargs):
         if 'device' in url_kwargs:
             obj.device = get_object_or_404(Device, pk=url_kwargs['device'])
+        elif 'virtualmachine' in url_kwargs:
+            obj.virtual_machine = get_object_or_404(VirtualMachine, pk=url_kwargs['virtualmachine'])
         return obj
 
-    def get_return_url(self, obj):
-        return obj.device.get_absolute_url()
+    def get_return_url(self, request, obj):
+        return obj.parent.get_absolute_url()
+
+
+class ServiceEditView(ServiceCreateView):
+    permission_required = 'ipam.change_service'
 
 
 class ServiceDeleteView(PermissionRequiredMixin, ObjectDeleteView):

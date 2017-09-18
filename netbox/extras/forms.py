@@ -1,11 +1,13 @@
+from __future__ import unicode_literals
 from collections import OrderedDict
 
 from django import forms
 from django.contrib.contenttypes.models import ContentType
 
-from utilities.forms import BulkEditForm, LaxURLField
+from utilities.forms import BootstrapMixin, BulkEditForm, LaxURLField
 from .models import (
-    CF_TYPE_BOOLEAN, CF_TYPE_DATE, CF_TYPE_INTEGER, CF_TYPE_SELECT, CF_TYPE_URL, CustomField, CustomFieldValue
+    CF_TYPE_BOOLEAN, CF_TYPE_DATE, CF_TYPE_INTEGER, CF_TYPE_SELECT, CF_TYPE_URL, CustomField, CustomFieldValue,
+    ImageAttachment,
 )
 
 
@@ -103,7 +105,7 @@ class CustomFieldForm(forms.ModelForm):
                                                                            obj_id=self.instance.pk)
             except CustomFieldValue.DoesNotExist:
                 # Skip this field if none exists already and its value is empty
-                if self.cleaned_data[field_name] in [None, u'']:
+                if self.cleaned_data[field_name] in [None, '']:
                     continue
                 cfv = CustomFieldValue(
                     field=self.fields[field_name].model,
@@ -158,3 +160,10 @@ class CustomFieldFilterForm(forms.Form):
         for name, field in custom_fields:
             field.required = False
             self.fields[name] = field
+
+
+class ImageAttachmentForm(BootstrapMixin, forms.ModelForm):
+
+    class Meta:
+        model = ImageAttachment
+        fields = ['name', 'image']

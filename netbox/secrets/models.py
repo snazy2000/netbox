@@ -1,4 +1,6 @@
+from __future__ import unicode_literals
 import os
+
 from Crypto.Cipher import AES, PKCS1_OAEP, XOR
 from Crypto.PublicKey import RSA
 
@@ -6,14 +8,13 @@ from django.conf import settings
 from django.contrib.auth.hashers import make_password, check_password
 from django.contrib.auth.models import Group, User
 from django.core.exceptions import ValidationError
-from django.core.urlresolvers import reverse
 from django.db import models
+from django.urls import reverse
 from django.utils.encoding import force_bytes, python_2_unicode_compatible
 
 from dcim.models import Device
 from utilities.models import CreatedUpdatedModel
-
-from .exceptions import InvalidSessionKey
+from .exceptions import InvalidKey
 from .hashers import SecretValidationHasher
 
 
@@ -69,7 +70,7 @@ class UserKey(CreatedUpdatedModel):
     copy of the master encryption key. The encrypted instance of the master key can be decrypted only with the user's
     matching (private) decryption key.
     """
-    user = models.OneToOneField(User, related_name='user_key', editable=False)
+    user = models.OneToOneField(User, related_name='user_key', editable=False, on_delete=models.CASCADE)
     public_key = models.TextField(verbose_name='RSA public key')
     master_key_cipher = models.BinaryField(max_length=512, blank=True, null=True, editable=False)
 
@@ -195,7 +196,7 @@ class SessionKey(models.Model):
     key = None
 
     class Meta:
-        ordering = ['user__username']
+        ordering = ['userkey__user__username']
 
     def __str__(self):
         return self.userkey.user.username
@@ -221,12 +222,23 @@ class SessionKey(models.Model):
 
         # Validate the provided session key
         if not check_password(session_key, self.hash):
-            raise InvalidSessionKey()
+            raise InvalidKey("Invalid session key")
 
         # Decrypt master key using provided session key
         master_key = xor_keys(session_key, bytes(self.cipher))
 
         return master_key
+
+    def get_session_key(self, master_key):
+
+        # Recover session key using the master key
+        session_key = xor_keys(master_key, bytes(self.cipher))
+
+        # Validate the recovered session key
+        if not check_password(session_key, self.hash):
+            raise InvalidKey("Invalid master key")
+
+        return session_key
 
 
 @python_2_unicode_compatible
@@ -272,13 +284,14 @@ class Secret(CreatedUpdatedModel):
     A Secret can be up to 65,536 bytes (64KB) in length. Each secret string will be padded with random data to a minimum
     of 64 bytes during encryption in order to protect short strings from ciphertext analysis.
     """
-    device = models.ForeignKey(Device, related_name='secrets')
+    device = models.ForeignKey(Device, related_name='secrets', on_delete=models.CASCADE)
     role = models.ForeignKey('SecretRole', related_name='secrets', on_delete=models.PROTECT)
     name = models.CharField(max_length=100, blank=True)
     ciphertext = models.BinaryField(editable=False, max_length=65568)  # 16B IV + 2B pad length + {62-65550}B padded
     hash = models.CharField(max_length=128, editable=False)
 
     plaintext = None
+    csv_headers = ['device', 'role', 'name', 'plaintext']
 
     class Meta:
         ordering = ['device', 'role', 'name']
@@ -290,8 +303,8 @@ class Secret(CreatedUpdatedModel):
 
     def __str__(self):
         if self.role and self.device:
-            return u'{} for {}'.format(self.role, self.device)
-        return u'Secret'
+            return '{} for {}'.format(self.role, self.device)
+        return 'Secret'
 
     def get_absolute_url(self):
         return reverse('secrets:secret', args=[self.pk])

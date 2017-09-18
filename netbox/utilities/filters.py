@@ -1,3 +1,5 @@
+from __future__ import unicode_literals
+
 import django_filters
 import itertools
 
@@ -15,6 +17,16 @@ class NumericInFilter(django_filters.BaseInFilter, django_filters.NumberFilter):
     Filters for a set of numeric values. Example: id__in=100,200,300
     """
     pass
+
+
+class NullableCharFieldFilter(django_filters.CharFilter):
+    null_value = 'NULL'
+
+    def filter(self, qs, value):
+        if value != self.null_value:
+            return super(NullableCharFieldFilter, self).filter(qs, value)
+        qs = self.get_method(qs)(**{'{}__isnull'.format(self.name): True})
+        return qs.distinct() if self.distinct else qs
 
 
 class NullableModelMultipleChoiceField(forms.ModelMultipleChoiceField):

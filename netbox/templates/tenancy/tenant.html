@@ -1,8 +1,6 @@
 {% extends '_base.html' %}
 {% load helpers %}
 
-{% block title %}{{ tenant }}{% endblock %}
-
 {% block content %}
 <div class="row">
     <div class="col-sm-8 col-md-9">
@@ -41,7 +39,7 @@
 		</a>
     {% endif %}
 </div>
-<h1>{{ tenant }}</h1>
+<h1>{% block title %}{{ tenant }}{% endblock %}</h1>
 {% include 'inc/created_updated.html' with obj=tenant %}
 <div class="row">
 	<div class="col-md-7">
@@ -125,6 +123,10 @@
                 <div class="col-md-4 text-center">
                     <h2><a href="{% url 'circuits:circuit_list' %}?tenant={{ tenant.slug }}" class="btn {% if stats.circuit_count %}btn-primary{% else %}btn-default{% endif %} btn-lg">{{ stats.circuit_count }}</a></h2>
                     <p>Circuits</p>
+                </div>
+                <div class="col-md-4 text-center">
+                    <h2><a href="{% url 'virtualization:virtualmachine_list' %}?tenant={{ tenant.slug }}" class="btn {% if stats.virtualmachine_count %}btn-primary{% else %}btn-default{% endif %} btn-lg">{{ stats.virtualmachine_count }}</a></h2>
+                    <p>Virtual machines</p>
                 </div>
             </div>
         </div>

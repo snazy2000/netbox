@@ -1,15 +1,18 @@
+from __future__ import unicode_literals
+
 from rest_framework import serializers
 from rest_framework.validators import UniqueTogetherValidator
 
 from dcim.api.serializers import NestedDeviceSerializer
 from secrets.models import Secret, SecretRole
+from utilities.api import ValidatedModelSerializer
 
 
 #
 # SecretRoles
 #
 
-class SecretRoleSerializer(serializers.ModelSerializer):
+class SecretRoleSerializer(ValidatedModelSerializer):
 
     class Meta:
         model = SecretRole
@@ -52,5 +55,8 @@ class WritableSecretSerializer(serializers.ModelSerializer):
             validator = UniqueTogetherValidator(queryset=Secret.objects.all(), fields=('device', 'role', 'name'))
             validator.set_context(self)
             validator(data)
+
+        # Enforce model validation
+        super(WritableSecretSerializer, self).validate(data)
 
         return data

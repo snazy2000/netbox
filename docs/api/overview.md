@@ -1,8 +1,42 @@
 NetBox v2.0 and later includes a full-featured REST API that allows its data model to be read and manipulated externally.
 
+# What is a REST API?
+
+REST stands for [representational state transfer](https://en.wikipedia.org/wiki/Representational_state_transfer). It's a particular type of API which employs HTTP to create, retrieve, update, and delete objects from a database. (This set of operations is commonly referred to as CRUD.) Each type of operation is associated with a particular HTTP verb:
+
+* `GET`: Retrieve an object or list of objects
+* `POST`: Create an object
+* `PUT` / `PATCH`: Modify an existing object
+* `DELETE`: Delete an existing object
+
+The NetBox API represents all objects in [JavaScript Object Notation (JSON)](http://www.json.org/). This makes it very easy to interact with NetBox data on the command line with common tools. For example, we can request an IP address from NetBox and output the JSON using `curl` and `jq`. (Piping the output through `jq` isn't strictly required but makes it much easier to read.)
+
+```
+$ curl -s http://localhost:8000/api/ipam/ip-addresses/2954/ | jq '.'
+{
+  "custom_fields": {},
+  "nat_outside": null,
+  "nat_inside": null,
+  "description": "An example IP address",
+  "id": 2954,
+  "family": 4,
+  "address": "5.101.108.132/26",
+  "vrf": null,
+  "tenant": null,
+  "status": {
+    "label": "Active",
+    "value": 1
+  },
+  "role": null,
+  "interface": null
+}
+```
+
+Each attribute of the NetBox object is expressed as a field in the dictionary. Fields may include their own nested objects, as in the case of the `status` field above. Every object includes a primary key named `id` which uniquely identifies it in the database.
+
 # URL Hierarchy
 
-NetBox's entire REST API is housed under the API root, `/api/`. The API's URL structure is divided at the root level by application: circuits, DCIM, extras, IPAM, secrets, and tenancy. Within each application, each model has its own path. For example, the provider and circuit objects are located under the "circuits" application:
+NetBox's entire API is housed under the API root at `https://<hostname>/api/`. The URL structure is divided at the root level by application: circuits, DCIM, extras, IPAM, secrets, and tenancy. Within each application, each model has its own path. For example, the provider and circuit objects are located under the "circuits" application:
 
 * /api/circuits/providers/
 * /api/circuits/circuits/
@@ -13,9 +47,9 @@ Likewise, the site, rack, and device objects are located under the "DCIM" applic
 * /api/dcim/racks/
 * /api/dcim/devices/
 
-The full hierarchy of available endpoints can be viewed by navigating to the API root (e.g. /api/) in a web browser.
+The full hierarchy of available endpoints can be viewed by navigating to the API root in a web browser.
 
-Each model generally has two URLs associated with it: a list URL and a detail URL. The list URL is used to request a list of multiple objects or to create a new object. The detail URL is used to retrieve, update, or delete an existing object. All objects are referenced by their numeric primary key (ID).
+Each model generally has two views associated with it: a list view and a detail view. The list view is used to request a list of multiple objects or to create a new object. The detail view is used to retrieve, update, or delete an existing object. All objects are referenced by their numeric primary key (`id`).
 
 * /api/dcim/devices/ - List devices or create a new device
 * /api/dcim/devices/123/ - Retrieve, update, or delete the device with ID 123
@@ -120,7 +154,7 @@ Vary: Accept
 }
 ```
 
-The default page size derives from the `[PAGINATE_COUNT](../configuration/optional-settings/#paginate_count)` configuration setting, which defaults to 50. However, this can be overridden per request by specifying the desired `offset` and `limit` query parameters. For example, if you wish to retrieve a hundred devices at a time, you would make a request for:
+The default page size derives from the [`PAGINATE_COUNT`](../configuration/optional-settings/#paginate_count) configuration setting, which defaults to 50. However, this can be overridden per request by specifying the desired `offset` and `limit` query parameters. For example, if you wish to retrieve a hundred devices at a time, you would make a request for:
 
 ```
 http://localhost:8000/api/dcim/devices/?limit=100
@@ -136,3 +170,8 @@ The response will return devices 1 through 100. The URL provided in the `next` a
     "results": [...]
 }
 ```
+
+The maximum number of objects that can be returned is limited by the [`MAX_PAGE_SIZE`](../configuration/optional-settings/#max_page_size) setting, which is 1000 by default. Setting this to `0` or `None` will remove the maximum limit. An API consumer can then pass `?limit=0` to retrieve _all_ matching objects with a single request.
+
+!!! warning
+    Disabling the page size limit introduces a potential for very resource-intensive requests, since one API request can effectively retrieve an entire table from the database.

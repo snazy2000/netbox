@@ -1,3 +1,5 @@
+from __future__ import unicode_literals
+
 from rest_framework import routers
 
 from . import views
@@ -37,4 +39,5 @@ router.register(r'vlans', views.VLANViewSet)
 # Services
 router.register(r'services', views.ServiceViewSet)
 
+app_name = 'ipam-api'
 urlpatterns = router.urls

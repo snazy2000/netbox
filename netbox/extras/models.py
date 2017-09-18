@@ -1,3 +1,4 @@
+from __future__ import unicode_literals
 from collections import OrderedDict
 from datetime import date
 import graphviz
@@ -13,59 +14,8 @@ from django.template import Template, Context
 from django.utils.encoding import python_2_unicode_compatible
 from django.utils.safestring import mark_safe
 
-
-CUSTOMFIELD_MODELS = (
-    'site', 'rack', 'devicetype', 'device',                 # DCIM
-    'aggregate', 'prefix', 'ipaddress', 'vlan', 'vrf',      # IPAM
-    'provider', 'circuit',                                  # Circuits
-    'tenant',                                               # Tenants
-)
-
-CF_TYPE_TEXT = 100
-CF_TYPE_INTEGER = 200
-CF_TYPE_BOOLEAN = 300
-CF_TYPE_DATE = 400
-CF_TYPE_URL = 500
-CF_TYPE_SELECT = 600
-CUSTOMFIELD_TYPE_CHOICES = (
-    (CF_TYPE_TEXT, 'Text'),
-    (CF_TYPE_INTEGER, 'Integer'),
-    (CF_TYPE_BOOLEAN, 'Boolean (true/false)'),
-    (CF_TYPE_DATE, 'Date'),
-    (CF_TYPE_URL, 'URL'),
-    (CF_TYPE_SELECT, 'Selection'),
-)
-
-GRAPH_TYPE_INTERFACE = 100
-GRAPH_TYPE_PROVIDER = 200
-GRAPH_TYPE_SITE = 300
-GRAPH_TYPE_CHOICES = (
-    (GRAPH_TYPE_INTERFACE, 'Interface'),
-    (GRAPH_TYPE_PROVIDER, 'Provider'),
-    (GRAPH_TYPE_SITE, 'Site'),
-)
-
-EXPORTTEMPLATE_MODELS = [
-    'site', 'rack', 'device', 'consoleport', 'powerport', 'interfaceconnection',    # DCIM
-    'aggregate', 'prefix', 'ipaddress', 'vlan',                                     # IPAM
-    'provider', 'circuit',                                                          # Circuits
-    'tenant',                                                                       # Tenants
-]
-
-ACTION_CREATE = 1
-ACTION_IMPORT = 2
-ACTION_EDIT = 3
-ACTION_BULK_EDIT = 4
-ACTION_DELETE = 5
-ACTION_BULK_DELETE = 6
-ACTION_CHOICES = (
-    (ACTION_CREATE, 'created'),
-    (ACTION_IMPORT, 'imported'),
-    (ACTION_EDIT, 'modified'),
-    (ACTION_BULK_EDIT, 'bulk edited'),
-    (ACTION_DELETE, 'deleted'),
-    (ACTION_BULK_DELETE, 'bulk deleted')
-)
+from utilities.utils import foreground_color
+from .constants import *
 
 
 #
@@ -134,7 +84,11 @@ class CustomField(models.Model):
         if self.type == CF_TYPE_BOOLEAN:
             return str(int(bool(value)))
         if self.type == CF_TYPE_DATE:
-            return value.strftime('%Y-%m-%d')
+            # Could be date/datetime object or string
+            try:
+                return value.strftime('%Y-%m-%d')
+            except AttributeError:
+                return value
         if self.type == CF_TYPE_SELECT:
             # Could be ModelChoiceField or TypedChoiceField
             return str(value.id) if hasattr(value, 'id') else str(value)
@@ -154,16 +108,13 @@ class CustomField(models.Model):
             # Read date as YYYY-MM-DD
             return date(*[int(n) for n in serialized_value.split('-')])
         if self.type == CF_TYPE_SELECT:
-            try:
-                return self.choices.get(pk=int(serialized_value))
-            except CustomFieldChoice.DoesNotExist:
-                return None
+            return self.choices.get(pk=int(serialized_value))
         return serialized_value
 
 
 @python_2_unicode_compatible
 class CustomFieldValue(models.Model):
-    field = models.ForeignKey('CustomField', related_name='values')
+    field = models.ForeignKey('CustomField', related_name='values', on_delete=models.CASCADE)
     obj_type = models.ForeignKey(ContentType, related_name='+', on_delete=models.PROTECT)
     obj_id = models.PositiveIntegerField()
     obj = GenericForeignKey('obj_type', 'obj_id')
@@ -174,7 +125,7 @@ class CustomFieldValue(models.Model):
         unique_together = ['field', 'obj_type', 'obj_id']
 
     def __str__(self):
-        return u'{} {}'.format(self.obj, self.field)
+        return '{} {}'.format(self.obj, self.field)
 
     @property
     def value(self):
@@ -252,7 +203,9 @@ class Graph(models.Model):
 
 @python_2_unicode_compatible
 class ExportTemplate(models.Model):
-    content_type = models.ForeignKey(ContentType, limit_choices_to={'model__in': EXPORTTEMPLATE_MODELS})
+    content_type = models.ForeignKey(
+        ContentType, limit_choices_to={'model__in': EXPORTTEMPLATE_MODELS}, on_delete=models.CASCADE
+    )
     name = models.CharField(max_length=100)
     description = models.CharField(max_length=200, blank=True)
     template_code = models.TextField()
@@ -266,7 +219,7 @@ class ExportTemplate(models.Model):
         ]
 
     def __str__(self):
-        return u'{}: {}'.format(self.content_type, self.name)
+        return '{}: {}'.format(self.content_type, self.name)
 
     def to_response(self, context_dict, filename):
         """
@@ -292,7 +245,7 @@ class ExportTemplate(models.Model):
 class TopologyMap(models.Model):
     name = models.CharField(max_length=50, unique=True)
     slug = models.SlugField(unique=True)
-    site = models.ForeignKey('dcim.Site', related_name='topology_maps', blank=True, null=True)
+    site = models.ForeignKey('dcim.Site', related_name='topology_maps', blank=True, null=True, on_delete=models.CASCADE)
     device_patterns = models.TextField(
         help_text="Identify devices to include in the diagram using regular expressions, one per line. Each line will "
                   "result in a new tier of the drawing. Separate multiple regexes within a line using semicolons. "
@@ -314,7 +267,8 @@ class TopologyMap(models.Model):
 
     def render(self, img_format='png'):
 
-        from dcim.models import Device, InterfaceConnection
+        from circuits.models import CircuitTermination
+        from dcim.models import CONNECTION_STATUS_CONNECTED, Device, InterfaceConnection
 
         # Construct the graph
         graph = graphviz.Graph()
@@ -331,10 +285,12 @@ class TopologyMap(models.Model):
 
             # Add each device to the graph
             devices = []
-            for query in device_set.split(';'):  # Split regexes on semicolons
-                devices += Device.objects.filter(name__regex=query)
+            for query in device_set.strip(';').split(';'):  # Split regexes on semicolons
+                devices += Device.objects.filter(name__regex=query).select_related('device_role')
             for d in devices:
-                subgraph.node(d.name)
+                bg_color = '#{}'.format(d.device_role.color)
+                fg_color = '#{}'.format(foreground_color(d.device_role.color))
+                subgraph.node(d.name, style='filled', fillcolor=bg_color, fontcolor=fg_color, fontname='sans')
 
             # Add an invisible connection to each successive device in a set to enforce horizontal order
             for j in range(0, len(devices) - 1):
@@ -348,15 +304,88 @@ class TopologyMap(models.Model):
             for query in device_set.split(';'):  # Split regexes on semicolons
                 device_superset = device_superset | Q(name__regex=query)
 
-        # Add all connections to the graph
+        # Add all interface connections to the graph
         devices = Device.objects.filter(*(device_superset,))
         connections = InterfaceConnection.objects.filter(
             interface_a__device__in=devices, interface_b__device__in=devices
         )
         for c in connections:
-            graph.edge(c.interface_a.device.name, c.interface_b.device.name)
+            style = 'solid' if c.connection_status == CONNECTION_STATUS_CONNECTED else 'dashed'
+            graph.edge(c.interface_a.device.name, c.interface_b.device.name, style=style)
+
+        # Add all circuits to the graph
+        for termination in CircuitTermination.objects.filter(term_side='A', interface__device__in=devices):
+            peer_termination = termination.get_peer_termination()
+            if (peer_termination is not None and peer_termination.interface is not None and
+                    peer_termination.interface.device in devices):
+                graph.edge(termination.interface.device.name, peer_termination.interface.device.name, color='blue')
 
         return graph.pipe(format=img_format)
+
+
+#
+# Image attachments
+#
+
+def image_upload(instance, filename):
+
+    path = 'image-attachments/'
+
+    # Rename the file to the provided name, if any. Attempt to preserve the file extension.
+    extension = filename.rsplit('.')[-1].lower()
+    if instance.name and extension in ['bmp', 'gif', 'jpeg', 'jpg', 'png']:
+        filename = '.'.join([instance.name, extension])
+    elif instance.name:
+        filename = instance.name
+
+    return '{}{}_{}_{}'.format(path, instance.content_type.name, instance.object_id, filename)
+
+
+@python_2_unicode_compatible
+class ImageAttachment(models.Model):
+    """
+    An uploaded image which is associated with an object.
+    """
+    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
+    object_id = models.PositiveIntegerField()
+    parent = GenericForeignKey('content_type', 'object_id')
+    image = models.ImageField(upload_to=image_upload, height_field='image_height', width_field='image_width')
+    image_height = models.PositiveSmallIntegerField()
+    image_width = models.PositiveSmallIntegerField()
+    name = models.CharField(max_length=50, blank=True)
+    created = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['name']
+
+    def __str__(self):
+        if self.name:
+            return self.name
+        filename = self.image.name.rsplit('/', 1)[-1]
+        return filename.split('_', 2)[2]
+
+    def delete(self, *args, **kwargs):
+
+        _name = self.image.name
+
+        super(ImageAttachment, self).delete(*args, **kwargs)
+
+        # Delete file from disk
+        self.image.delete(save=False)
+
+        # Deleting the file erases its name. We restore the image's filename here in case we still need to reference it
+        # before the request finishes. (For example, to display a message indicating the ImageAttachment was deleted.)
+        self.image.name = _name
+
+    @property
+    def size(self):
+        """
+        Wrapper around `image.size` to suppress an OSError in case the file is inaccessible.
+        """
+        try:
+            return self.image.size
+        except OSError:
+            return None
 
 
 #
@@ -396,6 +425,9 @@ class UserActionManager(models.Manager):
     def log_import(self, user, content_type, message=''):
         self.log_bulk_action(user, content_type, ACTION_IMPORT, message)
 
+    def log_bulk_create(self, user, content_type, message=''):
+        self.log_bulk_action(user, content_type, ACTION_BULK_CREATE, message)
+
     def log_bulk_edit(self, user, content_type, message=''):
         self.log_bulk_action(user, content_type, ACTION_BULK_EDIT, message)
 
@@ -422,11 +454,11 @@ class UserAction(models.Model):
 
     def __str__(self):
         if self.message:
-            return u'{} {}'.format(self.user, self.message)
-        return u'{} {} {}'.format(self.user, self.get_action_display(), self.content_type)
+            return '{} {}'.format(self.user, self.message)
+        return '{} {} {}'.format(self.user, self.get_action_display(), self.content_type)
 
     def icon(self):
-        if self.action in [ACTION_CREATE, ACTION_IMPORT]:
+        if self.action in [ACTION_CREATE, ACTION_BULK_CREATE, ACTION_IMPORT]:
             return mark_safe('<i class="glyphicon glyphicon-plus text-success"></i>')
         elif self.action in [ACTION_EDIT, ACTION_BULK_EDIT]:
             return mark_safe('<i class="glyphicon glyphicon-pencil text-warning"></i>')

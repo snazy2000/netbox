@@ -1,3 +1,4 @@
+from __future__ import unicode_literals
 import binascii
 import os
 
@@ -26,7 +27,7 @@ class Token(models.Model):
 
     def __str__(self):
         # Only display the last 24 bits of the token to avoid accidental exposure.
-        return u"{} ({})".format(self.key[-6:], self.user)
+        return "{} ({})".format(self.key[-6:], self.user)
 
     def save(self, *args, **kwargs):
         if not self.key:
@@ -39,6 +40,6 @@ class Token(models.Model):
 
     @property
     def is_expired(self):
-        if self.expires is not None and timezone.now() > self.expires:
-            return True
-        return False
+        if self.expires is None or timezone.now() < self.expires:
+            return False
+        return True

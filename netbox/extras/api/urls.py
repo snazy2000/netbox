@@ -1,3 +1,5 @@
+from __future__ import unicode_literals
+
 from rest_framework import routers
 
 from . import views
@@ -23,7 +25,11 @@ router.register(r'export-templates', views.ExportTemplateViewSet)
 # Topology maps
 router.register(r'topology-maps', views.TopologyMapViewSet)
 
+# Image attachments
+router.register(r'image-attachments', views.ImageAttachmentViewSet)
+
 # Recent activity
 router.register(r'recent-activity', views.RecentActivityViewSet)
 
+app_name = 'extras-api'
 urlpatterns = router.urls

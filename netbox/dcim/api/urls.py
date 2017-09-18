@@ -1,3 +1,5 @@
+from __future__ import unicode_literals
+
 from rest_framework import routers
 
 from . import views
@@ -50,10 +52,13 @@ router.register(r'interfaces', views.InterfaceViewSet)
 router.register(r'device-bays', views.DeviceBayViewSet)
 router.register(r'inventory-items', views.InventoryItemViewSet)
 
-# Interface connections
+# Connections
+router.register(r'console-connections', views.ConsoleConnectionViewSet, base_name='consoleconnections')
+router.register(r'power-connections', views.PowerConnectionViewSet, base_name='powerconnections')
 router.register(r'interface-connections', views.InterfaceConnectionViewSet)
 
 # Miscellaneous
 router.register(r'connected-device', views.ConnectedDeviceViewSet, base_name='connected-device')
 
+app_name = 'dcim-api'
 urlpatterns = router.urls

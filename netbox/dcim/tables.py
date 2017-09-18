@@ -1,12 +1,13 @@
+from __future__ import unicode_literals
+
 import django_tables2 as tables
 from django_tables2.utils import Accessor
 
 from utilities.tables import BaseTable, ToggleColumn
-
 from .models import (
-    ConsolePort, ConsolePortTemplate, ConsoleServerPortTemplate, Device, DeviceBayTemplate, DeviceRole, DeviceType,
-    Interface, InterfaceTemplate, Manufacturer, Platform, PowerOutletTemplate, PowerPort, PowerPortTemplate, Rack,
-    RackGroup, Region, Site,
+    ConsolePort, ConsolePortTemplate, ConsoleServerPort, ConsoleServerPortTemplate, Device, DeviceBay,
+    DeviceBayTemplate, DeviceRole, DeviceType, Interface, InterfaceTemplate, Manufacturer, Platform, PowerOutlet,
+    PowerOutletTemplate, PowerPort, PowerPortTemplate, Rack, RackGroup, RackReservation, Region, Site,
 )
 
 
@@ -64,6 +65,12 @@ RACK_ROLE = """
 {% endif %}
 """
 
+RACKRESERVATION_ACTIONS = """
+{% if perms.dcim.change_rackreservation %}
+    <a href="{% url 'dcim:rackreservation_edit' pk=record.pk %}" class="btn btn-xs btn-warning"><i class="glyphicon glyphicon-pencil" aria-hidden="true"></i></a>
+{% endif %}
+"""
+
 DEVICEROLE_ACTIONS = """
 {% if perms.dcim.change_devicerole %}
     <a href="{% url 'dcim:devicerole_edit' slug=record.slug %}" class="btn btn-xs btn-warning"><i class="glyphicon glyphicon-pencil" aria-hidden="true"></i></a>
@@ -86,18 +93,18 @@ DEVICE_ROLE = """
 <label class="label" style="background-color: #{{ record.device_role.color }}">{{ value }}</label>
 """
 
-STATUS_ICON = """
-{% if record.status %}
-    <span class="glyphicon glyphicon-ok-sign text-success" title="Active" aria-hidden="true"></span>
-{% else %}
-    <span class="glyphicon glyphicon-minus-sign text-danger" title="Offline" aria-hidden="true"></span>
-{% endif %}
+DEVICE_STATUS = """
+<span class="label label-{{ record.get_status_class }}">{{ record.get_status_display }}</span>
 """
 
 DEVICE_PRIMARY_IP = """
 {{ record.primary_ip6.address.ip|default:"" }}
 {% if record.primary_ip6 and record.primary_ip4 %}<br />{% endif %}
 {{ record.primary_ip4.address.ip|default:"" }}
+"""
+
+SUBDEVICE_ROLE_TEMPLATE = """
+{% if record.subdevice_role == True %}Parent{% elif record.subdevice_role == False %}Child{% else %}&mdash;{% endif %}
 """
 
 UTILIZATION_GRAPH = """
@@ -132,19 +139,23 @@ class RegionTable(BaseTable):
 
 class SiteTable(BaseTable):
     pk = ToggleColumn()
-    name = tables.LinkColumn('dcim:site', args=[Accessor('slug')], verbose_name='Name')
-    facility = tables.Column(verbose_name='Facility')
-    region = tables.TemplateColumn(template_code=SITE_REGION_LINK, verbose_name='Region')
-    tenant = tables.LinkColumn('tenancy:tenant', args=[Accessor('tenant.slug')], verbose_name='Tenant')
-    asn = tables.Column(verbose_name='ASN')
+    name = tables.LinkColumn()
+    region = tables.TemplateColumn(template_code=SITE_REGION_LINK)
+    tenant = tables.LinkColumn('tenancy:tenant', args=[Accessor('tenant.slug')])
+
+    class Meta(BaseTable.Meta):
+        model = Site
+        fields = ('pk', 'name', 'facility', 'region', 'tenant', 'asn')
+
+
+class SiteDetailTable(SiteTable):
     rack_count = tables.Column(accessor=Accessor('count_racks'), orderable=False, verbose_name='Racks')
     device_count = tables.Column(accessor=Accessor('count_devices'), orderable=False, verbose_name='Devices')
     prefix_count = tables.Column(accessor=Accessor('count_prefixes'), orderable=False, verbose_name='Prefixes')
     vlan_count = tables.Column(accessor=Accessor('count_vlans'), orderable=False, verbose_name='VLANs')
     circuit_count = tables.Column(accessor=Accessor('count_circuits'), orderable=False, verbose_name='Circuits')
 
-    class Meta(BaseTable.Meta):
-        model = Site
+    class Meta(SiteTable.Meta):
         fields = (
             'pk', 'name', 'facility', 'region', 'tenant', 'asn', 'rack_count', 'device_count', 'prefix_count',
             'vlan_count', 'circuit_count',
@@ -193,20 +204,26 @@ class RackRoleTable(BaseTable):
 
 class RackTable(BaseTable):
     pk = ToggleColumn()
-    name = tables.LinkColumn('dcim:rack', args=[Accessor('pk')], verbose_name='Name')
-    site = tables.LinkColumn('dcim:site', args=[Accessor('site.slug')], verbose_name='Site')
+    name = tables.LinkColumn()
+    site = tables.LinkColumn('dcim:site', args=[Accessor('site.slug')])
     group = tables.Column(accessor=Accessor('group.name'), verbose_name='Group')
-    facility_id = tables.Column(verbose_name='Facility ID')
-    tenant = tables.LinkColumn('tenancy:tenant', args=[Accessor('tenant.slug')], verbose_name='Tenant')
-    role = tables.TemplateColumn(RACK_ROLE, verbose_name='Role')
+    tenant = tables.LinkColumn('tenancy:tenant', args=[Accessor('tenant.slug')])
+    role = tables.TemplateColumn(RACK_ROLE)
     u_height = tables.TemplateColumn("{{ record.u_height }}U", verbose_name='Height')
-    devices = tables.Column(accessor=Accessor('device_count'), verbose_name='Devices')
-    get_utilization = tables.TemplateColumn(UTILIZATION_GRAPH, orderable=False, verbose_name='Utilization')
 
     class Meta(BaseTable.Meta):
         model = Rack
-        fields = ('pk', 'name', 'site', 'group', 'facility_id', 'tenant', 'role', 'u_height', 'devices',
-                  'get_utilization')
+        fields = ('pk', 'name', 'site', 'group', 'facility_id', 'tenant', 'role', 'u_height')
+
+
+class RackDetailTable(RackTable):
+    devices = tables.Column(accessor=Accessor('device_count'))
+    get_utilization = tables.TemplateColumn(UTILIZATION_GRAPH, orderable=False, verbose_name='Utilization')
+
+    class Meta(RackTable.Meta):
+        fields = (
+            'pk', 'name', 'site', 'group', 'facility_id', 'tenant', 'role', 'u_height', 'devices', 'get_utilization'
+        )
 
 
 class RackImportTable(BaseTable):
@@ -219,7 +236,24 @@ class RackImportTable(BaseTable):
 
     class Meta(BaseTable.Meta):
         model = Rack
-        fields = ('site', 'group', 'name', 'facility_id', 'tenant', 'u_height')
+        fields = ('name', 'site', 'group', 'facility_id', 'tenant', 'u_height')
+
+
+#
+# Rack reservations
+#
+
+class RackReservationTable(BaseTable):
+    pk = ToggleColumn()
+    rack = tables.LinkColumn('dcim:rack', args=[Accessor('rack.pk')])
+    unit_list = tables.Column(orderable=False, verbose_name='Units')
+    actions = tables.TemplateColumn(
+        template_code=RACKRESERVATION_ACTIONS, attrs={'td': {'class': 'text-right'}}, verbose_name=''
+    )
+
+    class Meta(BaseTable.Meta):
+        model = RackReservation
+        fields = ('pk', 'rack', 'unit_list', 'user', 'created', 'description', 'actions')
 
 
 #
@@ -245,15 +279,20 @@ class ManufacturerTable(BaseTable):
 
 class DeviceTypeTable(BaseTable):
     pk = ToggleColumn()
-    manufacturer = tables.Column(verbose_name='Manufacturer')
     model = tables.LinkColumn('dcim:devicetype', args=[Accessor('pk')], verbose_name='Device Type')
-    part_number = tables.Column(verbose_name='Part Number')
     is_full_depth = tables.BooleanColumn(verbose_name='Full Depth')
+    is_console_server = tables.BooleanColumn(verbose_name='CS')
+    is_pdu = tables.BooleanColumn(verbose_name='PDU')
+    is_network_device = tables.BooleanColumn(verbose_name='Net')
+    subdevice_role = tables.TemplateColumn(SUBDEVICE_ROLE_TEMPLATE, verbose_name='Subdevice Role')
     instance_count = tables.Column(verbose_name='Instances')
 
     class Meta(BaseTable.Meta):
         model = DeviceType
-        fields = ('pk', 'model', 'manufacturer', 'part_number', 'u_height', 'is_full_depth', 'instance_count')
+        fields = (
+            'pk', 'model', 'manufacturer', 'part_number', 'u_height', 'is_full_depth', 'is_console_server', 'is_pdu',
+            'is_network_device', 'subdevice_role', 'instance_count',
+        )
 
 
 #
@@ -267,7 +306,6 @@ class ConsolePortTemplateTable(BaseTable):
         model = ConsolePortTemplate
         fields = ('pk', 'name')
         empty_text = "None"
-        show_header = False
 
 
 class ConsoleServerPortTemplateTable(BaseTable):
@@ -277,7 +315,6 @@ class ConsoleServerPortTemplateTable(BaseTable):
         model = ConsoleServerPortTemplate
         fields = ('pk', 'name')
         empty_text = "None"
-        show_header = False
 
 
 class PowerPortTemplateTable(BaseTable):
@@ -287,7 +324,6 @@ class PowerPortTemplateTable(BaseTable):
         model = PowerPortTemplate
         fields = ('pk', 'name')
         empty_text = "None"
-        show_header = False
 
 
 class PowerOutletTemplateTable(BaseTable):
@@ -297,17 +333,16 @@ class PowerOutletTemplateTable(BaseTable):
         model = PowerOutletTemplate
         fields = ('pk', 'name')
         empty_text = "None"
-        show_header = False
 
 
 class InterfaceTemplateTable(BaseTable):
     pk = ToggleColumn()
+    mgmt_only = tables.TemplateColumn("{% if value %}OOB Management{% endif %}")
 
     class Meta(BaseTable.Meta):
         model = InterfaceTemplate
-        fields = ('pk', 'name', 'form_factor')
+        fields = ('pk', 'name', 'mgmt_only', 'form_factor')
         empty_text = "None"
-        show_header = False
 
 
 class DeviceBayTemplateTable(BaseTable):
@@ -317,7 +352,6 @@ class DeviceBayTemplateTable(BaseTable):
         model = DeviceBayTemplate
         fields = ('pk', 'name')
         empty_text = "None"
-        show_header = False
 
 
 #
@@ -362,24 +396,35 @@ class PlatformTable(BaseTable):
 
 class DeviceTable(BaseTable):
     pk = ToggleColumn()
-    status = tables.TemplateColumn(template_code=STATUS_ICON, verbose_name='')
-    name = tables.TemplateColumn(template_code=DEVICE_LINK, verbose_name='Name')
-    tenant = tables.LinkColumn('tenancy:tenant', args=[Accessor('tenant.slug')], verbose_name='Tenant')
-    site = tables.LinkColumn('dcim:site', args=[Accessor('site.slug')], verbose_name='Site')
-    rack = tables.LinkColumn('dcim:rack', args=[Accessor('rack.pk')], verbose_name='Rack')
+    name = tables.TemplateColumn(template_code=DEVICE_LINK)
+    status = tables.TemplateColumn(template_code=DEVICE_STATUS, verbose_name='Status')
+    tenant = tables.LinkColumn('tenancy:tenant', args=[Accessor('tenant.slug')])
+    site = tables.LinkColumn('dcim:site', args=[Accessor('site.slug')])
+    rack = tables.LinkColumn('dcim:rack', args=[Accessor('rack.pk')])
     device_role = tables.TemplateColumn(DEVICE_ROLE, verbose_name='Role')
-    device_type = tables.LinkColumn('dcim:devicetype', args=[Accessor('device_type.pk')], verbose_name='Type',
-                                    text=lambda record: record.device_type.full_name)
-    primary_ip = tables.TemplateColumn(orderable=False, verbose_name='IP Address',
-                                       template_code=DEVICE_PRIMARY_IP)
+    device_type = tables.LinkColumn(
+        'dcim:devicetype', args=[Accessor('device_type.pk')], verbose_name='Type',
+        text=lambda record: record.device_type.full_name
+    )
 
     class Meta(BaseTable.Meta):
+        model = Device
+        fields = ('pk', 'name', 'status', 'tenant', 'site', 'rack', 'device_role', 'device_type')
+
+
+class DeviceDetailTable(DeviceTable):
+    primary_ip = tables.TemplateColumn(
+        orderable=False, verbose_name='IP Address', template_code=DEVICE_PRIMARY_IP
+    )
+
+    class Meta(DeviceTable.Meta):
         model = Device
         fields = ('pk', 'name', 'status', 'tenant', 'site', 'rack', 'device_role', 'device_type', 'primary_ip')
 
 
 class DeviceImportTable(BaseTable):
     name = tables.TemplateColumn(template_code=DEVICE_LINK, verbose_name='Name')
+    status = tables.TemplateColumn(template_code=DEVICE_STATUS, verbose_name='Status')
     tenant = tables.LinkColumn('tenancy:tenant', args=[Accessor('tenant.slug')], verbose_name='Tenant')
     site = tables.LinkColumn('dcim:site', args=[Accessor('site.slug')], verbose_name='Site')
     rack = tables.LinkColumn('dcim:rack', args=[Accessor('rack.pk')], verbose_name='Rack')
@@ -389,8 +434,54 @@ class DeviceImportTable(BaseTable):
 
     class Meta(BaseTable.Meta):
         model = Device
-        fields = ('name', 'tenant', 'site', 'rack', 'position', 'device_role', 'device_type')
+        fields = ('name', 'status', 'tenant', 'site', 'rack', 'position', 'device_role', 'device_type')
         empty_text = False
+
+
+#
+# Device components
+#
+
+class ConsolePortTable(BaseTable):
+
+    class Meta(BaseTable.Meta):
+        model = ConsolePort
+        fields = ('name',)
+
+
+class ConsoleServerPortTable(BaseTable):
+
+    class Meta(BaseTable.Meta):
+        model = ConsoleServerPort
+        fields = ('name',)
+
+
+class PowerPortTable(BaseTable):
+
+    class Meta(BaseTable.Meta):
+        model = PowerPort
+        fields = ('name',)
+
+
+class PowerOutletTable(BaseTable):
+
+    class Meta(BaseTable.Meta):
+        model = PowerOutlet
+        fields = ('name',)
+
+
+class InterfaceTable(BaseTable):
+
+    class Meta(BaseTable.Meta):
+        model = Interface
+        fields = ('name', 'form_factor', 'lag', 'enabled', 'mgmt_only', 'description')
+
+
+class DeviceBayTable(BaseTable):
+
+    class Meta(BaseTable.Meta):
+        model = DeviceBay
+        fields = ('name',)
 
 
 #

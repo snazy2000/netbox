@@ -1,15 +1,29 @@
 $(document).ready(function() {
 
     // Unlocking a secret
-    $('button.unlock-secret').click(function() {
+    $('button.unlock-secret').click(function(event) {
         var secret_id = $(this).attr('secret-id');
         unlock_secret(secret_id);
+        event.preventDefault();
     });
 
     // Locking a secret
-    $('button.lock-secret').click(function() {
+    $('button.lock-secret').click(function(event) {
         var secret_id = $(this).attr('secret-id');
         lock_secret(secret_id);
+        event.preventDefault();
+    });
+
+    // Adding/editing a secret
+    $('form').submit(function(event) {
+        $(this).find('.requires-session-key').each(function() {
+            if (this.value && document.cookie.indexOf('session_key') == -1) {
+                console.log('Field ' + this.value + ' requires a session key');
+                $('#privkey_modal').modal('show');
+                event.preventDefault();
+                return false;
+            }
+        });
     });
 
     // Retrieve a session key
@@ -29,7 +43,7 @@ $(document).ready(function() {
             success: function (response, status) {
                 if (response.plaintext) {
                     console.log("Secret retrieved successfully");
-                    $('#secret_' + secret_id).html(response.plaintext);
+                    $('#secret_' + secret_id).text(response.plaintext);
                     $('button.unlock-secret[secret-id=' + secret_id + ']').hide();
                     $('button.lock-secret[secret-id=' + secret_id + ']').show();
                 } else {

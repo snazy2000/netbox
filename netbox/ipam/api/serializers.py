@@ -1,14 +1,18 @@
+from __future__ import unicode_literals
+from collections import OrderedDict
+
 from rest_framework import serializers
 from rest_framework.validators import UniqueTogetherValidator
 
 from dcim.api.serializers import NestedDeviceSerializer, InterfaceSerializer, NestedSiteSerializer
 from extras.api.customfields import CustomFieldModelSerializer
 from ipam.models import (
-    Aggregate, IPAddress, IPADDRESS_STATUS_CHOICES, IP_PROTOCOL_CHOICES, Prefix, PREFIX_STATUS_CHOICES, RIR, Role,
-    Service, VLAN, VLAN_STATUS_CHOICES, VLANGroup, VRF,
+    Aggregate, IPAddress, IPADDRESS_ROLE_CHOICES, IPADDRESS_STATUS_CHOICES, IP_PROTOCOL_CHOICES, Prefix,
+    PREFIX_STATUS_CHOICES, RIR, Role, Service, VLAN, VLAN_STATUS_CHOICES, VLANGroup, VRF,
 )
 from tenancy.api.serializers import NestedTenantSerializer
-from utilities.api import ChoiceFieldSerializer
+from utilities.api import ChoiceFieldSerializer, ValidatedModelSerializer
+from virtualization.api.serializers import NestedVirtualMachineSerializer
 
 
 #
@@ -20,7 +24,7 @@ class VRFSerializer(CustomFieldModelSerializer):
 
     class Meta:
         model = VRF
-        fields = ['id', 'name', 'rd', 'tenant', 'enforce_unique', 'description', 'custom_fields']
+        fields = ['id', 'name', 'rd', 'tenant', 'enforce_unique', 'description', 'display_name', 'custom_fields']
 
 
 class NestedVRFSerializer(serializers.ModelSerializer):
@@ -31,18 +35,18 @@ class NestedVRFSerializer(serializers.ModelSerializer):
         fields = ['id', 'url', 'name', 'rd']
 
 
-class WritableVRFSerializer(serializers.ModelSerializer):
+class WritableVRFSerializer(CustomFieldModelSerializer):
 
     class Meta:
         model = VRF
-        fields = ['id', 'name', 'rd', 'tenant', 'enforce_unique', 'description']
+        fields = ['id', 'name', 'rd', 'tenant', 'enforce_unique', 'description', 'custom_fields']
 
 
 #
 # Roles
 #
 
-class RoleSerializer(serializers.ModelSerializer):
+class RoleSerializer(ValidatedModelSerializer):
 
     class Meta:
         model = Role
@@ -61,7 +65,7 @@ class NestedRoleSerializer(serializers.ModelSerializer):
 # RIRs
 #
 
-class RIRSerializer(serializers.ModelSerializer):
+class RIRSerializer(ValidatedModelSerializer):
 
     class Meta:
         model = RIR
@@ -96,11 +100,11 @@ class NestedAggregateSerializer(serializers.ModelSerializer):
         fields = ['id', 'url', 'family', 'prefix']
 
 
-class WritableAggregateSerializer(serializers.ModelSerializer):
+class WritableAggregateSerializer(CustomFieldModelSerializer):
 
     class Meta:
         model = Aggregate
-        fields = ['id', 'prefix', 'rir', 'date_added', 'description']
+        fields = ['id', 'prefix', 'rir', 'date_added', 'description', 'custom_fields']
 
 
 #
@@ -135,9 +139,12 @@ class WritableVLANGroupSerializer(serializers.ModelSerializer):
         # Validate uniqueness of name and slug if a site has been assigned.
         if data.get('site', None):
             for field in ['name', 'slug']:
-                validator = UniqueTogetherValidator(queryset=VLAN.objects.all(), fields=('site', field))
+                validator = UniqueTogetherValidator(queryset=VLANGroup.objects.all(), fields=('site', field))
                 validator.set_context(self)
                 validator(data)
+
+        # Enforce model validation
+        super(WritableVLANGroupSerializer, self).validate(data)
 
         return data
 
@@ -169,11 +176,11 @@ class NestedVLANSerializer(serializers.ModelSerializer):
         fields = ['id', 'url', 'vid', 'name', 'display_name']
 
 
-class WritableVLANSerializer(serializers.ModelSerializer):
+class WritableVLANSerializer(CustomFieldModelSerializer):
 
     class Meta:
         model = VLAN
-        fields = ['id', 'site', 'group', 'vid', 'name', 'tenant', 'status', 'role', 'description']
+        fields = ['id', 'site', 'group', 'vid', 'name', 'tenant', 'status', 'role', 'description', 'custom_fields']
         validators = []
 
     def validate(self, data):
@@ -184,6 +191,9 @@ class WritableVLANSerializer(serializers.ModelSerializer):
                 validator = UniqueTogetherValidator(queryset=VLAN.objects.all(), fields=('group', field))
                 validator.set_context(self)
                 validator(data)
+
+        # Enforce model validation
+        super(WritableVLANSerializer, self).validate(data)
 
         return data
 
@@ -216,11 +226,14 @@ class NestedPrefixSerializer(serializers.ModelSerializer):
         fields = ['id', 'url', 'family', 'prefix']
 
 
-class WritablePrefixSerializer(serializers.ModelSerializer):
+class WritablePrefixSerializer(CustomFieldModelSerializer):
 
     class Meta:
         model = Prefix
-        fields = ['id', 'prefix', 'site', 'vrf', 'tenant', 'vlan', 'status', 'role', 'is_pool', 'description']
+        fields = [
+            'id', 'prefix', 'site', 'vrf', 'tenant', 'vlan', 'status', 'role', 'is_pool', 'description',
+            'custom_fields',
+        ]
 
 
 #
@@ -231,12 +244,13 @@ class IPAddressSerializer(CustomFieldModelSerializer):
     vrf = NestedVRFSerializer()
     tenant = NestedTenantSerializer()
     status = ChoiceFieldSerializer(choices=IPADDRESS_STATUS_CHOICES)
+    role = ChoiceFieldSerializer(choices=IPADDRESS_ROLE_CHOICES)
     interface = InterfaceSerializer()
 
     class Meta:
         model = IPAddress
         fields = [
-            'id', 'family', 'address', 'vrf', 'tenant', 'status', 'interface', 'description', 'nat_inside',
+            'id', 'family', 'address', 'vrf', 'tenant', 'status', 'role', 'interface', 'description', 'nat_inside',
             'nat_outside', 'custom_fields',
         ]
 
@@ -252,11 +266,28 @@ IPAddressSerializer._declared_fields['nat_inside'] = NestedIPAddressSerializer()
 IPAddressSerializer._declared_fields['nat_outside'] = NestedIPAddressSerializer()
 
 
-class WritableIPAddressSerializer(serializers.ModelSerializer):
+class WritableIPAddressSerializer(CustomFieldModelSerializer):
 
     class Meta:
         model = IPAddress
-        fields = ['id', 'address', 'vrf', 'tenant', 'status', 'interface', 'description', 'nat_inside']
+        fields = [
+            'id', 'address', 'vrf', 'tenant', 'status', 'role', 'interface', 'description', 'nat_inside',
+            'custom_fields',
+        ]
+
+
+class AvailableIPSerializer(serializers.Serializer):
+
+    def to_representation(self, instance):
+        if self.context.get('vrf'):
+            vrf = NestedVRFSerializer(self.context['vrf'], context={'request': self.context['request']}).data
+        else:
+            vrf = None
+        return OrderedDict([
+            ('family', self.context['prefix'].version),
+            ('address', '{}/{}'.format(instance, self.context['prefix'].prefixlen)),
+            ('vrf', vrf),
+        ])
 
 
 #
@@ -265,16 +296,18 @@ class WritableIPAddressSerializer(serializers.ModelSerializer):
 
 class ServiceSerializer(serializers.ModelSerializer):
     device = NestedDeviceSerializer()
+    virtual_machine = NestedVirtualMachineSerializer()
     protocol = ChoiceFieldSerializer(choices=IP_PROTOCOL_CHOICES)
     ipaddresses = NestedIPAddressSerializer(many=True)
 
     class Meta:
         model = Service
-        fields = ['id', 'device', 'name', 'port', 'protocol', 'ipaddresses', 'description']
+        fields = ['id', 'device', 'virtual_machine', 'name', 'port', 'protocol', 'ipaddresses', 'description']
 
 
+# TODO: Figure out how to use model validation with ManyToManyFields. Calling clean() yields a ValueError.
 class WritableServiceSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Service
-        fields = ['id', 'device', 'name', 'port', 'protocol', 'ipaddresses', 'description']
+        fields = ['id', 'device', 'virtual_machine', 'name', 'port', 'protocol', 'ipaddresses', 'description']

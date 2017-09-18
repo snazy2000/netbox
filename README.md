@@ -1,7 +1,3 @@
-**The [2017 NetBox User Survey](https://goo.gl/forms/75HnNS2iE0Y1hVFH3) is open!** Please consider taking a moment to respond. Your feedback helps shape the pace and focus of NetBox development. The survey will remain open until 2017-03-31. Results will be published on the mailing list.
-
----
-
 ![NetBox](docs/netbox_logo.png "NetBox logo")
 
 NetBox is an IP address management (IPAM) and data center infrastructure management (DCIM) tool. Initially conceived by the network engineering team at [DigitalOcean](https://www.digitalocean.com/), NetBox was developed specifically to address the needs of network and infrastructure engineers.
@@ -14,7 +10,9 @@ Questions? Comments? Please subscribe to [the netbox-discuss mailing list](https
 
 ### Build Status
 
-|             | python 2.7 |
+NetBox is built against both Python 2.7 and 3.5.  Python 3.5 is recommended.
+
+|             | status |
 |-------------|------------|
 | **master** | [![Build Status](https://travis-ci.org/digitalocean/netbox.svg?branch=master)](https://travis-ci.org/digitalocean/netbox) |
 | **develop** | [![Build Status](https://travis-ci.org/digitalocean/netbox.svg?branch=develop)](https://travis-ci.org/digitalocean/netbox) |
@@ -33,5 +31,6 @@ Please see [the documentation](http://netbox.readthedocs.io/en/stable/) for inst
 
 ## Alternative Installations
 
-* [Docker container](http://netbox.readthedocs.io/en/stable/installation/docker/)
+* [Docker container](https://github.com/digitalocean/netbox-docker)
 * [Heroku deployment](https://heroku.com/deploy?template=https://github.com/BILDQUADRAT/netbox/tree/heroku) (via [@mraerino](https://github.com/BILDQUADRAT/netbox/tree/heroku))
+* [Vagrant deployment](https://github.com/ryanmerolle/netbox-vagrant)

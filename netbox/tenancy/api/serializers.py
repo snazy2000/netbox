@@ -1,14 +1,17 @@
+from __future__ import unicode_literals
+
 from rest_framework import serializers
 
 from extras.api.customfields import CustomFieldModelSerializer
 from tenancy.models import Tenant, TenantGroup
+from utilities.api import ValidatedModelSerializer
 
 
 #
 # Tenant groups
 #
 
-class TenantGroupSerializer(serializers.ModelSerializer):
+class TenantGroupSerializer(ValidatedModelSerializer):
 
     class Meta:
         model = TenantGroup
@@ -43,8 +46,8 @@ class NestedTenantSerializer(serializers.ModelSerializer):
         fields = ['id', 'url', 'name', 'slug']
 
 
-class WritableTenantSerializer(serializers.ModelSerializer):
+class WritableTenantSerializer(CustomFieldModelSerializer):
 
     class Meta:
         model = Tenant
-        fields = ['id', 'name', 'slug', 'group', 'description', 'comments']
+        fields = ['id', 'name', 'slug', 'group', 'description', 'comments', 'custom_fields']

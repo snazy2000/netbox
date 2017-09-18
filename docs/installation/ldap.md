@@ -1,5 +1,4 @@
-This guide explains how to implement LDAP authentication using an external server. User authentication will fall back to
-built-in Django users in the event of a failure.
+This guide explains how to implement LDAP authentication using an external server. User authentication will fall back to built-in Django users in the event of a failure.
 
 # Requirements
 
@@ -29,6 +28,9 @@ Create a file in the same directory as `configuration.py` (typically `netbox/net
 
 ## General Server Configuration
 
+!!! info
+    When using Windows Server 2012 you may need to specify a port on `AUTH_LDAP_SERVER_URI`. Use `3269` for secure, or `3268` for non-secure.
+
 ```python
 import ldap
 
@@ -52,6 +54,9 @@ LDAP_IGNORE_CERT_ERRORS = True
 
 ## User Authentication
 
+!!! info
+    When using Windows Server, `2012 AUTH_LDAP_USER_DN_TEMPLATE` should be set to None.
+
 ```python
 from django_auth_ldap.config import LDAPSearch
 
@@ -67,7 +72,8 @@ AUTH_LDAP_USER_DN_TEMPLATE = "uid=%(user)s,ou=users,dc=example,dc=com"
 # You can map user attributes to Django attributes as so.
 AUTH_LDAP_USER_ATTR_MAP = {
     "first_name": "givenName",
-    "last_name": "sn"
+    "last_name": "sn",
+    "email": "mail"
 }
 ```
 
@@ -99,3 +105,7 @@ AUTH_LDAP_FIND_GROUP_PERMS = True
 AUTH_LDAP_CACHE_GROUPS = True
 AUTH_LDAP_GROUP_CACHE_TIMEOUT = 3600
 ```
+
+* `is_active` - All users must be mapped to at least this group to enable authentication. Without this, users cannot log in.
+* `is_staff` - Users mapped to this group are enabled for access to the administration tools; this is the equivalent of checking the "staff status" box on a manually created user. This doesn't grant any specific permissions.
+* `is_superuser` - Users mapped to this group will be granted superuser status. Superusers are implicitly granted all permissions.

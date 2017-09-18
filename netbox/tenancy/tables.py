@@ -1,5 +1,6 @@
+from __future__ import unicode_literals
+
 import django_tables2 as tables
-from django_tables2.utils import Accessor
 
 from utilities.tables import BaseTable, ToggleColumn
 
@@ -22,8 +23,9 @@ class TenantGroupTable(BaseTable):
     name = tables.LinkColumn(verbose_name='Name')
     tenant_count = tables.Column(verbose_name='Tenants')
     slug = tables.Column(verbose_name='Slug')
-    actions = tables.TemplateColumn(template_code=TENANTGROUP_ACTIONS, attrs={'td': {'class': 'text-right'}},
-                                    verbose_name='')
+    actions = tables.TemplateColumn(
+        template_code=TENANTGROUP_ACTIONS, attrs={'td': {'class': 'text-right'}}, verbose_name=''
+    )
 
     class Meta(BaseTable.Meta):
         model = TenantGroup
@@ -36,9 +38,7 @@ class TenantGroupTable(BaseTable):
 
 class TenantTable(BaseTable):
     pk = ToggleColumn()
-    name = tables.LinkColumn('tenancy:tenant', args=[Accessor('slug')], verbose_name='Name')
-    group = tables.Column(verbose_name='Group')
-    description = tables.Column(verbose_name='Description')
+    name = tables.LinkColumn()
 
     class Meta(BaseTable.Meta):
         model = Tenant
