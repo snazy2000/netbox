@@ -1,12 +1,10 @@
 from __future__ import unicode_literals
+
 from collections import OrderedDict
 from itertools import count, groupby
 
-from mptt.models import MPTTModel, TreeForeignKey
-
 from django.conf import settings
 from django.contrib.auth.models import User
-from django.contrib.contenttypes.models import ContentType
 from django.contrib.contenttypes.fields import GenericRelation
 from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
@@ -15,9 +13,10 @@ from django.db import models
 from django.db.models import Count, Q, ObjectDoesNotExist
 from django.urls import reverse
 from django.utils.encoding import python_2_unicode_compatible
+from mptt.models import MPTTModel, TreeForeignKey
 
 from circuits.models import Circuit
-from extras.models import CustomFieldModel, CustomField, CustomFieldValue, ImageAttachment
+from extras.models import CustomFieldModel, CustomFieldValue, ImageAttachment
 from extras.rpc import RPC_CLIENTS
 from tenancy.models import Tenant
 from utilities.fields import ColorField, NullableCharField
@@ -256,8 +255,8 @@ class Rack(CreatedUpdatedModel, CustomFieldModel):
 
     def clean(self):
 
-        # Validate that Rack is tall enough to house the installed Devices
         if self.pk:
+            # Validate that Rack is tall enough to house the installed Devices
             top_device = Device.objects.filter(rack=self).exclude(position__isnull=True).order_by('-position').first()
             if top_device:
                 min_height = top_device.position + top_device.device_type.u_height - 1
@@ -266,6 +265,12 @@ class Rack(CreatedUpdatedModel, CustomFieldModel):
                         'u_height': "Rack must be at least {}U tall to house currently installed devices.".format(
                             min_height
                         )
+                    })
+            # Validate that Rack was assigned a group of its same site, if applicable
+            if self.group:
+                if self.group.site != self.site:
+                    raise ValidationError({
+                        'group': "Rack group must be from the same site, {}.".format(self.site)
                     })
 
     def save(self, *args, **kwargs):
@@ -290,6 +295,7 @@ class Rack(CreatedUpdatedModel, CustomFieldModel):
             self.tenant.name if self.tenant else None,
             self.role.name if self.role else None,
             self.get_type_display() if self.type else None,
+            self.serial,
             self.width,
             self.u_height,
             self.desc_units,
@@ -411,7 +417,7 @@ class RackReservation(models.Model):
     rack = models.ForeignKey('Rack', related_name='reservations', on_delete=models.CASCADE)
     units = ArrayField(models.PositiveSmallIntegerField())
     created = models.DateTimeField(auto_now_add=True)
-    user = models.ForeignKey(User, editable=False, on_delete=models.PROTECT)
+    user = models.ForeignKey(User, on_delete=models.PROTECT)
     description = models.CharField(max_length=100)
 
     class Meta:
@@ -1111,6 +1117,17 @@ class ConsoleServerPort(models.Model):
     def __str__(self):
         return self.name
 
+    def clean(self):
+
+        # Check that the parent device's DeviceType is a console server
+        if self.device is None:
+            raise ValidationError("Console server ports must be assigned to devices.")
+        device_type = self.device.device_type
+        if not device_type.is_console_server:
+            raise ValidationError("The {} {} device type not support assignment of console server ports.".format(
+                device_type.manufacturer, device_type
+            ))
+
 
 #
 # Power ports
@@ -1176,6 +1193,17 @@ class PowerOutlet(models.Model):
     def __str__(self):
         return self.name
 
+    def clean(self):
+
+        # Check that the parent device's DeviceType is a PDU
+        if self.device is None:
+            raise ValidationError("Power outlets must be assigned to devices.")
+        device_type = self.device.device_type
+        if not device_type.is_pdu:
+            raise ValidationError("The {} {} device type not support assignment of power outlets.".format(
+                device_type.manufacturer, device_type
+            ))
+
 
 #
 # Interfaces
@@ -1231,6 +1259,14 @@ class Interface(models.Model):
         return self.name
 
     def clean(self):
+
+        # Check that the parent device's DeviceType is a network device
+        if self.device is not None:
+            device_type = self.device.device_type
+            if not device_type.is_network_device:
+                raise ValidationError("The {} {} device type not support assignment of network interfaces.".format(
+                    device_type.manufacturer, device_type
+                ))
 
         # An Interface must belong to a Device *or* to a VirtualMachine
         if self.device and self.virtual_machine:

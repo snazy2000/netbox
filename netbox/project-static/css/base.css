@@ -35,8 +35,22 @@ footer p {
     margin: 20px 0;
 }
 
-/* Collapse the nav menu on displays less than 1200px wide */
+/* Hide the username in the navigation menu on displays less than 1400px wide */
+@media (max-width: 1399px) {
+    #navbar_user {
+        display: none;
+    }
+}
+
+/* Hide the search bar in the navigation menu on displays less than 1200px wide */
 @media (max-width: 1199px) {
+    #navbar_search {
+        display: none;
+    }
+}
+
+/* Collapse the nav menu on displays less than 960px wide */
+@media (max-width: 959px) {
     .navbar-header {
         float: none;
     }
@@ -72,12 +86,8 @@ footer p {
     .collapse.in {
         display:block !important;
     }
-}
-
-/* Hide the nav search bar on displays less than 1600px wide */
-@media (max-width: 1599px) {
-    #navbar_search {
-        display: none;
+    #navbar_user {
+        display: inline;
     }
 }
 
@@ -106,9 +116,14 @@ label {
 label.required {
     font-weight: bold;
 }
+input[name="pk"] {
+    margin-top: 0;
+}
 
 /* Tables */
-th.pk, td.pk {
+.table > tbody > tr > th.pk, .table > tbody > tr > td.pk {
+    padding-bottom: 6px;
+    padding-top: 10px;
     width: 30px;
 }
 tfoot td {
@@ -390,6 +405,9 @@ table.reports td.stats label {
 }
 
 /* Misc */
+.text-nowrap {
+    white-space: nowrap;
+}
 .banner-bottom {
     margin-bottom: 50px;
 }

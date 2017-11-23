@@ -1,12 +1,12 @@
 from __future__ import unicode_literals
 
 import django_filters
-
 from django.contrib.auth.models import User
 from django.contrib.contenttypes.models import ContentType
 
 from dcim.models import Site
-from .models import CF_TYPE_SELECT, CustomField, Graph, ExportTemplate, TopologyMap, UserAction
+from .constants import CF_TYPE_SELECT
+from .models import CustomField, Graph, ExportTemplate, TopologyMap, UserAction
 
 
 class CustomFieldFilter(django_filters.Filter):
@@ -19,17 +19,28 @@ class CustomFieldFilter(django_filters.Filter):
         super(CustomFieldFilter, self).__init__(*args, **kwargs)
 
     def filter(self, queryset, value):
+
         # Skip filter on empty value
         if not value.strip():
             return queryset
-        # Treat 0 as None for Select fields
-        try:
-            if self.cf_type == CF_TYPE_SELECT and int(value) == 0:
-                return queryset.exclude(
-                    custom_field_values__field__name=self.name,
-                )
-        except ValueError:
-            pass
+
+        # Selection fields get special treatment (values must be integers)
+        if self.cf_type == CF_TYPE_SELECT:
+            try:
+                # Treat 0 as None
+                if int(value) == 0:
+                    return queryset.exclude(
+                        custom_field_values__field__name=self.name,
+                    )
+                # Match on exact CustomFieldChoice PK
+                else:
+                    return queryset.filter(
+                        custom_field_values__field__name=self.name,
+                        custom_field_values__serialized_value=value,
+                    )
+            except ValueError:
+                return queryset.none()
+
         return queryset.filter(
             custom_field_values__field__name=self.name,
             custom_field_values__serialized_value__icontains=value,

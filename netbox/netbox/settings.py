@@ -13,7 +13,7 @@ except ImportError:
     )
 
 
-VERSION = '2.2.2'
+VERSION = '2.2.6'
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -148,6 +148,7 @@ MIDDLEWARE = (
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'django.middleware.security.SecurityMiddleware',
+    'utilities.middleware.ExceptionHandlingMiddleware',
     'utilities.middleware.LoginRequiredMiddleware',
     'utilities.middleware.APIVersionMiddleware',
 )
@@ -205,6 +206,10 @@ LOGIN_URL = '/{}login/'.format(BASE_PATH)
 
 # Secrets
 SECRETS_MIN_PUBKEY_SIZE = 2048
+
+# Django filters
+FILTERS_NULL_CHOICE_LABEL = 'None'
+FILTERS_NULL_CHOICE_VALUE = '0'  # Must be a string
 
 # Django REST framework (API)
 REST_FRAMEWORK_VERSION = VERSION[0:3]  # Use major.minor as API version
