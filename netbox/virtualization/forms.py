@@ -340,9 +340,19 @@ class VirtualMachineFilterForm(BootstrapMixin, CustomFieldFilterForm):
         to_field_name='slug',
         null_option=(0, 'None')
     )
+    cluster_type = FilterChoiceField(
+        queryset=ClusterType.objects.all(),
+        to_field_name='slug',
+        null_option=(0, 'None')
+    )
     cluster_id = FilterChoiceField(
         queryset=Cluster.objects.annotate(filter_count=Count('virtual_machines')),
         label='Cluster'
+    )
+    site = FilterChoiceField(
+        queryset=Site.objects.annotate(filter_count=Count('clusters__virtual_machines')),
+        to_field_name='slug',
+        null_option=(0, 'None')
     )
     role = FilterChoiceField(
         queryset=DeviceRole.objects.filter(vm_role=True).annotate(filter_count=Count('virtual_machines')),

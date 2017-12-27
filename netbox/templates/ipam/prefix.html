@@ -1,4 +1,5 @@
 {% extends '_base.html' %}
+{% load helpers %}
 
 {% block title %}{{ prefix }}{% endblock %}
 
@@ -101,16 +102,6 @@
                     </td>
                 </tr>
                 <tr>
-                    <td>Is a pool</td>
-                    <td>
-                        {% if prefix.is_pool %}
-                            <i class="glyphicon glyphicon-ok text-success" title="Yes"></i>
-                        {% else %}
-                            <i class="glyphicon glyphicon-remove text-danger" title="No"></i>
-                        {% endif %}
-                    </td>
-                </tr>
-                <tr>
                     <td>Description</td>
                     <td>
                         {% if prefix.description %}
@@ -121,8 +112,18 @@
                     </td>
                 </tr>
                 <tr>
+                    <td>Is a pool</td>
+                    <td>
+                        {% if prefix.is_pool %}
+                            <i class="glyphicon glyphicon-ok text-success" title="Yes"></i>
+                        {% else %}
+                            <i class="glyphicon glyphicon-remove text-danger" title="No"></i>
+                        {% endif %}
+                    </td>
+                </tr>
+                <tr>
                     <td>Utilization</td>
-                    <td><a href="{% url 'ipam:prefix_ipaddresses' pk=prefix.pk %}">{{ ipaddress_count }} IP addresses</a> ({{ prefix.get_utilization }}%)</td>
+                    <td>{% utilization_graph prefix.get_utilization %}</td>
                 </tr>
             </table>
         </div>
@@ -137,16 +138,5 @@
         {% endif %}
         {% include 'panel_table.html' with table=parent_prefix_table heading='Parent Prefixes' %}
 	</div>
-</div>
-<div class="row">
-	<div class="col-md-12">
-        {% if child_prefix_table.rows %}
-            {% include 'utilities/obj_table.html' with table=child_prefix_table table_template='panel_table.html' heading='Child Prefixes' parent=prefix bulk_edit_url='ipam:prefix_bulk_edit' bulk_delete_url='ipam:prefix_bulk_delete' %}
-        {% elif prefix.new_subnet %}
-            <a href="{% url 'ipam:prefix_add' %}?prefix={{ prefix.new_subnet }}{% if prefix.vrf %}&vrf={{ prefix.vrf.pk }}{% endif %}{% if prefix.site %}&site={{ prefix.site.pk }}{% endif %}" class="btn btn-success">
-                <i class="fa fa-plus" aria-hidden="true"></i> Add Child Prefix
-            </a>
-        {% endif %}
-    </div>
 </div>
 {% endblock %}
